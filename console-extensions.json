@@ -1,0 +1,187 @@
+[
+  {
+    "type": "console.flag/model",
+    "properties": {
+      "flag": "TRUSTEE_TRUSTEECONFIG",
+      "model": {
+        "group": "confidentialcontainers.org",
+        "version": "v1alpha1",
+        "kind": "TrusteeConfig"
+      }
+    }
+  },
+  {
+    "type": "console.model-metadata",
+    "properties": {
+      "model": {
+        "group": "confidentialcontainers.org",
+        "version": "v1alpha1",
+        "kind": "TrusteeConfig"
+      },
+      "abbr": "TC",
+      "label": "TrusteeConfig",
+      "labelPlural": "TrusteeConfigs",
+      "color": "#6753ac"
+    }
+  },
+  {
+    "type": "console.model-metadata",
+    "properties": {
+      "model": {
+        "group": "confidentialcontainers.org",
+        "version": "v1alpha1",
+        "kind": "KbsConfig"
+      },
+      "abbr": "KBS",
+      "label": "KbsConfig",
+      "labelPlural": "KbsConfigs",
+      "color": "#6753ac"
+    }
+  },
+
+  {
+    "type": "console.navigation/section",
+    "properties": {
+      "id": "trustee",
+      "perspective": "admin",
+      "name": "%plugin__trustee-openshift-console-plugin~Trustee (Attestation)%"
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "trustee-overview",
+      "perspective": "admin",
+      "section": "trustee",
+      "name": "%plugin__trustee-openshift-console-plugin~Overview%",
+      "href": "/trustee"
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "trustee-deploy",
+      "perspective": "admin",
+      "section": "trustee",
+      "name": "%plugin__trustee-openshift-console-plugin~Deploy%",
+      "href": "/trustee/deploy"
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.navigation/resource-ns",
+    "properties": {
+      "id": "trustee-configs",
+      "perspective": "admin",
+      "section": "trustee",
+      "name": "%plugin__trustee-openshift-console-plugin~TrusteeConfigs%",
+      "model": {
+        "group": "confidentialcontainers.org",
+        "version": "v1alpha1",
+        "kind": "TrusteeConfig"
+      }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/trustee",
+      "component": { "$codeRef": "TrusteeOverview" }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/trustee/deploy",
+      "component": { "$codeRef": "DeployTrusteeWizard" }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/trustee/verify/:ns/:name",
+      "component": { "$codeRef": "VerifyAttestation" }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.tab/horizontalNav",
+    "properties": {
+      "model": {
+        "group": "confidentialcontainers.org",
+        "version": "v1alpha1",
+        "kind": "TrusteeConfig"
+      },
+      "page": {
+        "name": "%plugin__trustee-openshift-console-plugin~Policies%",
+        "href": "policies"
+      },
+      "component": { "$codeRef": "TrusteePoliciesTab" }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.tab/horizontalNav",
+    "properties": {
+      "model": {
+        "group": "confidentialcontainers.org",
+        "version": "v1alpha1",
+        "kind": "TrusteeConfig"
+      },
+      "page": {
+        "name": "%plugin__trustee-openshift-console-plugin~Reference values%",
+        "href": "reference-values"
+      },
+      "component": { "$codeRef": "TrusteeReferenceValuesTab" }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.tab/horizontalNav",
+    "properties": {
+      "model": {
+        "group": "confidentialcontainers.org",
+        "version": "v1alpha1",
+        "kind": "TrusteeConfig"
+      },
+      "page": {
+        "name": "%plugin__trustee-openshift-console-plugin~Delivered secrets%",
+        "href": "secrets"
+      },
+      "component": { "$codeRef": "TrusteeSecretsTab" }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.tab/horizontalNav",
+    "properties": {
+      "model": {
+        "group": "confidentialcontainers.org",
+        "version": "v1alpha1",
+        "kind": "TrusteeConfig"
+      },
+      "page": {
+        "name": "%plugin__trustee-openshift-console-plugin~GPU attestation%",
+        "href": "gpu-attestation"
+      },
+      "component": { "$codeRef": "TrusteeGpuTab" }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.action/resource-provider",
+    "properties": {
+      "model": { "version": "v1", "kind": "Pod" },
+      "provider": { "$codeRef": "ccActions.useCcPodActions" }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  }
+]

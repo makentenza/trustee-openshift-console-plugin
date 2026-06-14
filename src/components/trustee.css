@@ -1,0 +1,85 @@
+.trustee-openshift-console-plugin__stat {
+  text-align: center;
+}
+
+.trustee-openshift-console-plugin__stat--clickable {
+  cursor: pointer;
+  transition: box-shadow 0.15s ease-in-out;
+}
+
+.trustee-openshift-console-plugin__stat--clickable:hover {
+  box-shadow: var(--pf-t--global--box-shadow--md);
+}
+
+.trustee-openshift-console-plugin__stat-value {
+  font-size: var(--pf-t--global--font--size--2xl, 1.5rem);
+  font-weight: var(--pf-t--global--font--weight--body--bold, 700);
+}
+
+.trustee-openshift-console-plugin__stat-label {
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.trustee-openshift-console-plugin__mono {
+  font-family: var(--pf-t--global--font--family--mono, monospace);
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+}
+
+.trustee-openshift-console-plugin__muted {
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+}
+
+.trustee-openshift-console-plugin__mt {
+  margin-block-start: var(--pf-t--global--spacer--md, 1rem);
+}
+
+.trustee-openshift-console-plugin__mb {
+  margin-block-end: var(--pf-t--global--spacer--md, 1rem);
+}
+
+.trustee-openshift-console-plugin__health-bar {
+  display: flex;
+  block-size: var(--pf-t--global--spacer--sm, 0.5rem);
+  border-radius: var(--pf-t--global--border--radius--small, 3px);
+  overflow: hidden;
+}
+
+.trustee-openshift-console-plugin__health-segment--healthy {
+  background-color: var(--pf-t--global--icon--color--status--success--default);
+}
+
+.trustee-openshift-console-plugin__health-segment--warning {
+  background-color: var(--pf-t--global--icon--color--status--warning--default);
+}
+
+.trustee-openshift-console-plugin__health-segment--error {
+  background-color: var(--pf-t--global--icon--color--status--danger--default);
+}
+
+/* Monaco needs an explicit height on an ancestor or it collapses (YAML tabs). */
+.trustee-openshift-console-plugin__yaml {
+  block-size: 36rem;
+}
+
+/* stylelint-disable-next-line selector-disallowed-list */
+.trustee-openshift-console-plugin__yaml .pf-v6-c-multiple-file-upload {
+  block-size: 100%;
+}
+
+/* stylelint-disable-next-line selector-disallowed-list */
+.trustee-openshift-console-plugin__yaml .co-file-dropzone {
+  block-size: 100%;
+}
+
+.trustee-openshift-console-plugin__icon-success {
+  color: var(--pf-t--global--icon--color--status--success--default);
+}
+
+.trustee-openshift-console-plugin__icon-warning {
+  color: var(--pf-t--global--icon--color--status--warning--default);
+}
+
+.trustee-openshift-console-plugin__icon-info {
+  color: var(--pf-t--global--icon--color--status--info--default);
+}

@@ -1,0 +1,23 @@
+**/node_modules
+**/dist
+**/.DS_Store
+.devcontainer/dev.env
+integration-tests/.auth
+integration-tests/results
+
+# Jest
+coverage/
+jest-junit.xml
+
+# Yarn v4 (Berry)
+.yarn/*
+install-state.gz
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# yarn machine-local state
+.yarn/install-state.gz
+.yarn/cache
