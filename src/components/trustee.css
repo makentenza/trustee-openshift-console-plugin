@@ -83,3 +83,135 @@
 .trustee-openshift-console-plugin__icon-info {
   color: var(--pf-t--global--icon--color--status--info--default);
 }
+
+/* ---- Attestation topology (custom SVG) ---- */
+.trustee-openshift-console-plugin__topo {
+  overflow: auto;
+  max-block-size: 72vh;
+  padding: var(--pf-t--global--spacer--sm, 0.5rem);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: var(--pf-t--global--border--radius--small, 3px);
+  background-color: var(--pf-t--global--background--color--secondary--default);
+}
+
+.trustee-openshift-console-plugin__topo-title {
+  fill: var(--pf-t--global--text--color--regular);
+  font-size: var(--pf-t--global--font--size--md, 1rem);
+  font-weight: var(--pf-t--global--font--weight--body--bold, 700);
+}
+
+.trustee-openshift-console-plugin__topo-text {
+  fill: var(--pf-t--global--text--color--regular);
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+}
+
+.trustee-openshift-console-plugin__topo-subtle {
+  fill: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+}
+
+.trustee-openshift-console-plugin__topo-mono {
+  fill: var(--pf-t--global--text--color--subtle);
+  font-family: var(--pf-t--global--font--family--mono, monospace);
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+}
+
+.trustee-openshift-console-plugin__topo-hub {
+  fill: var(--pf-t--global--background--color--primary--default);
+  stroke: var(--pf-t--global--icon--color--status--info--default);
+  stroke-width: 2;
+}
+
+.trustee-openshift-console-plugin__topo-cluster {
+  fill: var(--pf-t--global--background--color--secondary--default);
+  stroke: var(--pf-t--global--border--color--default);
+}
+
+.trustee-openshift-console-plugin__topo-cluster--spoke {
+  fill: none;
+  stroke: var(--pf-t--global--border--color--default);
+  stroke-dasharray: 6 5;
+}
+
+.trustee-openshift-console-plugin__topo-node {
+  fill: var(--pf-t--global--background--color--primary--default);
+  stroke: var(--pf-t--global--border--color--default);
+}
+
+.trustee-openshift-console-plugin__topo-wl {
+  fill: var(--pf-t--global--background--color--secondary--default);
+  stroke: var(--pf-t--global--border--color--default);
+}
+
+.trustee-openshift-console-plugin__topo-edge {
+  fill: none;
+  stroke: var(--pf-t--global--icon--color--status--info--default);
+  stroke-width: 1.5;
+}
+
+.trustee-openshift-console-plugin__topo-edge--dashed {
+  opacity: 0.65;
+  stroke-dasharray: 6 5;
+}
+
+.trustee-openshift-console-plugin__topo-arrowhead {
+  fill: var(--pf-t--global--icon--color--status--info--default);
+}
+
+.trustee-openshift-console-plugin__topo-dot--healthy {
+  fill: var(--pf-t--global--icon--color--status--success--default);
+}
+
+.trustee-openshift-console-plugin__topo-dot--pending {
+  fill: var(--pf-t--global--icon--color--status--warning--default);
+}
+
+.trustee-openshift-console-plugin__topo-dot--error {
+  fill: var(--pf-t--global--icon--color--status--danger--default);
+}
+
+.trustee-openshift-console-plugin__topo-clickable {
+  cursor: pointer;
+}
+
+.trustee-openshift-console-plugin__topo-clickable:hover
+  .trustee-openshift-console-plugin__topo-node,
+.trustee-openshift-console-plugin__topo-clickable:hover .trustee-openshift-console-plugin__topo-wl,
+.trustee-openshift-console-plugin__topo-clickable:hover
+  .trustee-openshift-console-plugin__topo-hub {
+  stroke: var(--pf-t--global--icon--color--status--info--default);
+  stroke-width: 2;
+}
+
+.trustee-openshift-console-plugin__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pf-t--global--spacer--md, 1rem);
+  align-items: center;
+}
+
+.trustee-openshift-console-plugin__legend-item {
+  display: inline-flex;
+  gap: var(--pf-t--global--spacer--xs, 0.25rem);
+  align-items: center;
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+}
+
+.trustee-openshift-console-plugin__legend-dot {
+  display: inline-block;
+  inline-size: 0.6rem;
+  block-size: 0.6rem;
+  border-radius: 50%;
+}
+
+.trustee-openshift-console-plugin__legend-dot--healthy {
+  background-color: var(--pf-t--global--icon--color--status--success--default);
+}
+
+.trustee-openshift-console-plugin__legend-dot--pending {
+  background-color: var(--pf-t--global--icon--color--status--warning--default);
+}
+
+.trustee-openshift-console-plugin__legend-dot--error {
+  background-color: var(--pf-t--global--icon--color--status--danger--default);
+}

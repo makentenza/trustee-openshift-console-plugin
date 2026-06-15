@@ -1,0 +1,267 @@
+// ---------------------------------------------------------------------------
+// Topology model + layout for the Trustee attestation view.
+//
+// Trustee is the hub: one KBS deployment brokers secrets to confidential
+// workloads after verifying their attestation evidence. A workload runs in a
+// node, in a cluster — so we render that nesting (workload ∈ node ∈ cluster)
+// with the Trustee hub attesting the cluster(s).
+//
+// The console can only watch the cluster it runs in, so the live data is this
+// cluster's confidential pods. The hub-and-spoke nature (one Trustee, many
+// clusters) is shown by the dashed "spoke clusters" container — remote spokes
+// attest over the network to the same KBS endpoint; we do not fabricate them.
+// ---------------------------------------------------------------------------
+import { SNP_NODE_LABEL, TDX_NODE_LABEL } from '../k8s/resources';
+import type { InfrastructureKind, NodeKind, PodKind, TeeType } from '../k8s/types';
+
+export type WlStatus = 'healthy' | 'pending' | 'error';
+
+export interface TopoWorkload {
+  uid: string;
+  name: string;
+  namespace: string;
+  nodeName: string; // '' when the pod is not yet scheduled to a node
+  runtime: string;
+  gpu: boolean;
+  status: WlStatus;
+}
+
+export interface TopoNode {
+  name: string; // '' for the synthetic "unscheduled" bucket
+  tee: TeeType;
+  ready: boolean;
+  known: boolean; // matched a real Node object
+  workloads: TopoWorkload[];
+}
+
+export interface TopoCluster {
+  name: string;
+  nodes: TopoNode[];
+  workloadCount: number;
+}
+
+// ---- classification helpers ----
+
+/** A confidential-containers pod runs on the kata-cc family of runtime classes. */
+export const isConfidentialRuntimeName = (name?: string): boolean =>
+  !!name && name.startsWith('kata-cc');
+
+export const teeTypeForNode = (node?: NodeKind): TeeType => {
+  const labels = node?.metadata?.labels ?? {};
+  if (labels[TDX_NODE_LABEL] === 'true') return 'tdx';
+  if (labels[SNP_NODE_LABEL] === 'true') return 'snp';
+  return 'none';
+};
+
+export const teeShort = (tee: TeeType): string =>
+  tee === 'tdx' ? 'TDX' : tee === 'snp' ? 'SEV-SNP' : '';
+
+export const teeLong = (tee: TeeType): string =>
+  tee === 'tdx' ? 'Intel TDX' : tee === 'snp' ? 'AMD SEV-SNP' : 'No TEE node label';
+
+const nodeReady = (node?: NodeKind): boolean =>
+  (node?.status?.conditions ?? []).some((c) => c.type === 'Ready' && c.status === 'True');
+
+export const podStatusCategory = (pod: PodKind): WlStatus => {
+  const phase = pod.status?.phase;
+  const waitingBad = (pod.status?.containerStatuses ?? []).some(
+    (c) =>
+      c.state?.waiting &&
+      /CrashLoopBackOff|RunContainerError|CreateContainerError|ImagePullBackOff|ErrImagePull/i.test(
+        c.state.waiting.reason ?? '',
+      ),
+  );
+  if (waitingBad) return 'error';
+  if (phase === 'Running' || phase === 'Succeeded') return 'healthy';
+  if (phase === 'Failed' || phase === 'Unknown') return 'error';
+  return 'pending';
+};
+
+export const truncate = (s: string, n: number): string =>
+  s.length > n ? `${s.slice(0, n - 1)}…` : s;
+
+// ---- model ----
+
+/** Build the live (this-cluster) topology model from confidential pods + nodes. */
+export const buildTopoCluster = (
+  pods: PodKind[],
+  nodes: NodeKind[],
+  infra: InfrastructureKind[],
+): TopoCluster => {
+  const clusterName =
+    infra.find((i) => i.metadata?.name === 'cluster')?.status?.infrastructureName ?? 'This cluster';
+
+  const nodeByName = new Map<string, NodeKind>();
+  nodes.forEach((n) => {
+    const nm = n.metadata?.name;
+    if (nm) nodeByName.set(nm, n);
+  });
+
+  const confidential = pods.filter((p) => isConfidentialRuntimeName(p.spec?.runtimeClassName));
+
+  const byNode = new Map<string, TopoWorkload[]>();
+  confidential.forEach((p) => {
+    const nodeName = p.spec?.nodeName ?? '';
+    const runtime = p.spec?.runtimeClassName ?? '';
+    const wl: TopoWorkload = {
+      uid: p.metadata?.uid ?? `${p.metadata?.namespace ?? ''}/${p.metadata?.name ?? ''}`,
+      name: p.metadata?.name ?? '',
+      namespace: p.metadata?.namespace ?? '',
+      nodeName,
+      runtime,
+      gpu: runtime.includes('gpu'),
+      status: podStatusCategory(p),
+    };
+    const arr = byNode.get(nodeName) ?? [];
+    arr.push(wl);
+    byNode.set(nodeName, arr);
+  });
+
+  const topoNodes: TopoNode[] = [...byNode.entries()]
+    .map(([name, workloads]) => {
+      const obj = name ? nodeByName.get(name) : undefined;
+      return {
+        name,
+        tee: teeTypeForNode(obj),
+        ready: name ? nodeReady(obj) : false,
+        known: !!obj,
+        workloads: [...workloads].sort((a, b) =>
+          `${a.namespace}/${a.name}`.localeCompare(`${b.namespace}/${b.name}`),
+        ),
+      };
+    })
+    // real nodes alphabetically; the unscheduled ('') bucket sinks to the bottom
+    .sort((a, b) => {
+      if (a.name === '') return 1;
+      if (b.name === '') return -1;
+      return a.name.localeCompare(b.name);
+    });
+
+  return { name: clusterName, nodes: topoNodes, workloadCount: confidential.length };
+};
+
+// ---- layout (pure geometry; pixel coordinates for the SVG) ----
+
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+export interface LaidWorkload extends Rect {
+  wl: TopoWorkload;
+}
+export interface LaidNode extends Rect {
+  node: TopoNode;
+  headerH: number;
+  workloads: LaidWorkload[];
+}
+export interface LaidCluster extends Rect {
+  name: string;
+  headerH: number;
+  nodes: LaidNode[];
+  workloadCount: number;
+  empty: boolean;
+}
+export interface Edge {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  dashed: boolean;
+}
+export interface Layout {
+  width: number;
+  height: number;
+  hub: Rect;
+  cluster: LaidCluster;
+  spoke: Rect & { headerH: number };
+  edges: Edge[];
+}
+
+const GEO = {
+  pad: 16,
+  hubW: 208,
+  hubH: 112,
+  arrowGap: 80,
+  clusterW: 600,
+  clusterPad: 14,
+  clusterHeaderH: 46,
+  nodeGap: 12,
+  nodePad: 12,
+  nodeHeaderH: 32,
+  wlW: 174,
+  wlH: 48,
+  wlGap: 10,
+  emptyH: 48,
+  clusterGap: 22,
+  spokeH: 96,
+};
+
+export const layoutTopology = (cluster: TopoCluster): Layout => {
+  const g = GEO;
+  const clusterX = g.pad + g.hubW + g.arrowGap;
+  const innerW = g.clusterW - 2 * g.clusterPad; // node-box width
+  const nodeInnerW = innerW - 2 * g.nodePad;
+  const cols = Math.max(1, Math.floor((nodeInnerW + g.wlGap) / (g.wlW + g.wlGap)));
+
+  const nodeX = clusterX + g.clusterPad;
+  const wlX0 = nodeX + g.nodePad;
+  let cursorY = g.pad + g.clusterHeaderH + g.clusterPad; // first node top
+
+  const laidNodes: LaidNode[] = cluster.nodes.map((node) => {
+    const rows = Math.max(1, Math.ceil(node.workloads.length / cols));
+    const contentH = rows * g.wlH + (rows - 1) * g.wlGap;
+    const nodeH = g.nodeHeaderH + contentH + g.nodePad;
+    const nodeTop = cursorY;
+    const wlY0 = nodeTop + g.nodeHeaderH;
+    const workloads: LaidWorkload[] = node.workloads.map((wl, i) => ({
+      wl,
+      x: wlX0 + (i % cols) * (g.wlW + g.wlGap),
+      y: wlY0 + Math.floor(i / cols) * (g.wlH + g.wlGap),
+      w: g.wlW,
+      h: g.wlH,
+    }));
+    cursorY = nodeTop + nodeH + g.nodeGap;
+    return { node, x: nodeX, y: nodeTop, w: innerW, h: nodeH, headerH: g.nodeHeaderH, workloads };
+  });
+
+  const empty = cluster.nodes.length === 0;
+  const contentBottom = empty
+    ? g.pad + g.clusterHeaderH + g.clusterPad + g.emptyH
+    : cursorY - g.nodeGap; // bottom of the last node
+  const clusterH = contentBottom - g.pad + g.clusterPad;
+
+  const laidCluster: LaidCluster = {
+    name: cluster.name,
+    x: clusterX,
+    y: g.pad,
+    w: g.clusterW,
+    h: clusterH,
+    headerH: g.clusterHeaderH,
+    nodes: laidNodes,
+    workloadCount: cluster.workloadCount,
+    empty,
+  };
+
+  const spokeY = g.pad + clusterH + g.clusterGap;
+  const spoke = { x: clusterX, y: spokeY, w: g.clusterW, h: g.spokeH, headerH: g.nodeHeaderH };
+
+  const hub: Rect = { x: g.pad, y: g.pad + clusterH / 2 - g.hubH / 2, w: g.hubW, h: g.hubH };
+
+  const hubRightX = hub.x + hub.w;
+  const hubMidY = hub.y + hub.h / 2;
+  const edges: Edge[] = [
+    { x1: hubRightX, y1: hubMidY, x2: clusterX, y2: g.pad + clusterH / 2, dashed: false },
+    { x1: hubRightX, y1: hubMidY, x2: clusterX, y2: spokeY + g.spokeH / 2, dashed: true },
+  ];
+
+  return {
+    width: clusterX + g.clusterW + g.pad,
+    height: spokeY + g.spokeH + g.pad,
+    hub,
+    cluster: laidCluster,
+    spoke,
+    edges,
+  };
+};

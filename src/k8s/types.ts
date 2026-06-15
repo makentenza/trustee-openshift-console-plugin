@@ -64,6 +64,28 @@ export type PodKind = K8sResourceCommon & {
   };
 };
 
+/** TEE technology detected on a node from NFD labels. */
+export type TeeType = 'tdx' | 'snp' | 'none';
+
+/** A v1 Node — the topology view reads labels (TEE) and the Ready condition. */
+export type NodeKind = K8sResourceCommon & {
+  status?: {
+    conditions?: { type: string; status: string }[];
+  };
+};
+
+/**
+ * config.openshift.io/v1 Infrastructure (cluster-scoped singleton "cluster") — gives
+ * the topology view this cluster's identity and platform.
+ */
+export type InfrastructureKind = K8sResourceCommon & {
+  status?: {
+    infrastructureName?: string;
+    platform?: string;
+    controlPlaneTopology?: string;
+  };
+};
+
 /**
  * confidentialcontainers.org/v1alpha1 TrusteeConfig — the high-level, user-facing
  * attestation CR. The operator generates the KBS, KbsConfig, policies, reference

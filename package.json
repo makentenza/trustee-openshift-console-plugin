@@ -78,6 +78,7 @@
     "description": "Deploy, manage, and observe the Red Hat build of Trustee confidential containers attestation service (KBS, policies, reference values, sealed secrets, GPU attestation).",
     "exposedModules": {
       "TrusteeOverview": "./components/TrusteeOverview",
+      "TrusteeTopology": "./components/TrusteeTopology",
       "DeployTrusteeWizard": "./components/DeployTrusteeWizard",
       "VerifyAttestation": "./components/VerifyAttestation",
       "TrusteePoliciesTab": "./components/tabs/TrusteePoliciesTab",

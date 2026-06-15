@@ -69,6 +69,16 @@ export const ClusterVersionGVK: K8sGroupVersionKind = {
   kind: 'ClusterVersion',
 };
 
+/** v1 Node — the topology view reads TEE labels + Ready to place confidential workloads. */
+export const NodeGVK: K8sGroupVersionKind = { version: 'v1', kind: 'Node' };
+
+/** config.openshift.io/v1 Infrastructure (singleton "cluster") — read status.infrastructureName. */
+export const InfrastructureGVK: K8sGroupVersionKind = {
+  group: 'config.openshift.io',
+  version: 'v1',
+  kind: 'Infrastructure',
+};
+
 export const ConfigMapModel: K8sModel = {
   apiVersion: 'v1',
   kind: 'ConfigMap',
@@ -173,6 +183,13 @@ export const TRUSTEE_OPERATOR_DEPLOYMENT = 'trustee-operator-controller-manager'
  * Authored on the workload (CoCo) side; the attestation-verify view reads it.
  */
 export const CC_INIT_DATA_ANNOTATION = 'io.katacontainers.config.hypervisor.cc_init_data';
+
+/** NFD labels that mark a node's hardware TEE capability (topology view). */
+export const TDX_NODE_LABEL = 'intel.feature.node.kubernetes.io/tdx';
+export const SNP_NODE_LABEL = 'amd.feature.node.kubernetes.io/snp';
+/** The in-cluster Service the Trustee operator creates for the KBS workload. */
+export const KBS_SERVICE_NAME = 'kbs-service';
+export const KBS_SERVICE_PORT = 8080;
 
 // `kind~group~version` reference string for tab/action/flag extensions.
 export const TrusteeConfigModelRef = `${TRUSTEE_GROUP}~${TRUSTEE_VERSION}~TrusteeConfig`;

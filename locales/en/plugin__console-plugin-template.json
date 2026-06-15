@@ -1,3 +1,0 @@
-{
-  "Could not read the cluster pull secret ({{name}} in {{ns}}). veritas needs it to pull the OpenShift release image. This requires cluster-admin, or provide a pull secret in this namespace. ({{detail}})": "Could not read the cluster pull secret ({{name}} in {{ns}}). veritas needs it to pull the OpenShift release image. This requires cluster-admin, or provide a pull secret in this namespace. ({{detail}})"
-}
