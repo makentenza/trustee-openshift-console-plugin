@@ -5,9 +5,10 @@ export type ConfigMapKind = K8sResourceCommon & {
   data?: Record<string, string>;
 };
 
-/** A v1 Secret (we read .type / key names, never values). */
+/** A v1 Secret (we read .type / key names, never values; write via stringData). */
 export type SecretKind = K8sResourceCommon & {
   data?: Record<string, string>;
+  stringData?: Record<string, string>;
   type?: string;
 };
 
@@ -21,6 +22,19 @@ export type ContainerStatusKind = {
     terminated?: { exitCode?: number; reason?: string; finishedAt?: string };
   };
   image?: string;
+};
+
+/** Minimal apps/v1 Deployment shape — the Health tab reads replica counts. */
+export type DeploymentKind = K8sResourceCommon & {
+  spec?: {
+    replicas?: number;
+  };
+  status?: {
+    replicas?: number;
+    readyReplicas?: number;
+    availableReplicas?: number;
+    updatedReplicas?: number;
+  };
 };
 
 /** Minimal Pod shape we rely on (attestation verification reads runtimeClass + initdata). */
@@ -63,6 +77,11 @@ export type KbsConfigKind = K8sResourceCommon & {
   spec?: {
     kbsServiceType?: string;
     kbsSecretResources?: string[];
+    kbsDeploymentSpec?: {
+      replicas?: number;
+    };
+    /** Local certificate cache settings (advanced); shape is opaque here. */
+    kbsLocalCertCacheSpec?: Record<string, unknown>;
   };
   status?: {
     isReady?: boolean;

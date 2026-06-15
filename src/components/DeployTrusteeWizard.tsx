@@ -63,6 +63,16 @@ const DeployTrusteeWizard: FC = () => {
       : {}),
   });
 
+  // openssl + `oc create secret tls` flow, wired to the form's live values.
+  const tlsSecretCmd = [
+    `# discover the cluster ingress domain (use it in your cert's CN/SAN if you front KBS with a route)`,
+    `oc get ingresses.config/cluster -o jsonpath='{.spec.domain}'`,
+    `# generate a self-signed cert + key`,
+    `openssl req -x509 -newkey rsa:2048 -nodes -keyout tls.key -out tls.crt -subj '/CN=kbs' -days 365`,
+    `# load it as the TLS secret referenced above`,
+    `oc create secret tls ${httpsSecret.trim() || '<tls-secret-name>'} --cert=tls.crt --key=tls.key -n ${namespace.trim() || '<namespace>'}`,
+  ].join('\n');
+
   const yaml = [
     'apiVersion: confidentialcontainers.org/v1alpha1',
     'kind: TrusteeConfig',
@@ -193,8 +203,14 @@ const DeployTrusteeWizard: FC = () => {
               )}
             </Content>
             <Content component="li">
-              {t('NVIDIA GPU attestation — requires an NRAS licensing agreement and outbound HTTPS to ')}
-              <a href="https://nras.attestation.nvidia.com" target="_blank" rel="noopener noreferrer">
+              {t(
+                'NVIDIA GPU attestation — requires an NRAS licensing agreement and outbound HTTPS to ',
+              )}
+              <a
+                href="https://nras.attestation.nvidia.com"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 nras.attestation.nvidia.com
               </a>
               .
@@ -323,6 +339,22 @@ const DeployTrusteeWizard: FC = () => {
                         </HelperTextItem>
                       </HelperText>
                     </FormHelperText>
+                    <ExpandableSection
+                      toggleText={t('How to generate this TLS secret')}
+                      className="trustee-openshift-console-plugin__mt"
+                    >
+                      <Content
+                        component="p"
+                        className="trustee-openshift-console-plugin__mb trustee-openshift-console-plugin__muted"
+                      >
+                        {t(
+                          'Generate a self-signed cert for the KBS and load it as the TLS secret below (substitute your own CA for production):',
+                        )}
+                      </Content>
+                      <CodeBlock>
+                        <CodeBlockCode>{tlsSecretCmd}</CodeBlockCode>
+                      </CodeBlock>
+                    </ExpandableSection>
                   </FormGroup>
                   <FormGroup
                     label={t('Attestation token verification secret (optional)')}

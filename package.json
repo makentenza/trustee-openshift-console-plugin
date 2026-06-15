@@ -84,6 +84,7 @@
       "TrusteeReferenceValuesTab": "./components/tabs/TrusteeReferenceValuesTab",
       "TrusteeSecretsTab": "./components/tabs/TrusteeSecretsTab",
       "TrusteeGpuTab": "./components/tabs/TrusteeGpuTab",
+      "TrusteeHealthTab": "./components/tabs/TrusteeHealthTab",
       "ccActions": "./actions/ccActions"
     },
     "dependencies": {

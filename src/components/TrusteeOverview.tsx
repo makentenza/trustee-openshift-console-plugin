@@ -23,7 +23,7 @@ import {
   Spinner,
 } from '@patternfly/react-core';
 import { LockIcon } from '@patternfly/react-icons';
-import { useTrusteeConfigs } from '../k8s/hooks';
+import { useKbsConfigs, useTrusteeConfigs } from '../k8s/hooks';
 import { TrusteeConfigGVK } from '../k8s/resources';
 import type { TrusteeConfigKind } from '../k8s/types';
 import './trustee.css';
@@ -143,18 +143,30 @@ const EmptyTrustee: FC = () => {
 const TrusteeOverview: FC = () => {
   const { t } = useTranslation('plugin__trustee-openshift-console-plugin');
   const [trusteeConfigs, loaded] = useTrusteeConfigs();
+  const [kbsConfigs, kbsLoaded] = useKbsConfigs();
 
   return (
     <>
       <DocumentTitle>{t('Trustee')}</DocumentTitle>
       <ListPageHeader title={t('Trustee (Attestation)')}>
         {loaded && trusteeConfigs.length > 0 && (
-          <Button
-            variant="primary"
-            component={(props) => <Link {...props} to={TRUSTEECONFIG_DEPLOY} />}
-          >
-            {t('Create TrusteeConfig')}
-          </Button>
+          <>
+            {kbsLoaded && (
+              <Label
+                color="grey"
+                icon={<LockIcon />}
+                className="trustee-openshift-console-plugin__mt"
+              >
+                {t('{{count}} KbsConfig', { count: kbsConfigs.length })}
+              </Label>
+            )}
+            <Button
+              variant="primary"
+              component={(props) => <Link {...props} to={TRUSTEECONFIG_DEPLOY} />}
+            >
+              {t('Create TrusteeConfig')}
+            </Button>
+          </>
         )}
       </ListPageHeader>
       <PageSection>

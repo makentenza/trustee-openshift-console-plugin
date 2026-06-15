@@ -86,6 +86,21 @@
     "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
   },
   {
+    "type": "console.navigation/resource-ns",
+    "properties": {
+      "id": "trustee-kbsconfigs",
+      "perspective": "admin",
+      "section": "trustee",
+      "name": "%plugin__trustee-openshift-console-plugin~KbsConfigs%",
+      "model": {
+        "group": "confidentialcontainers.org",
+        "version": "v1alpha1",
+        "kind": "KbsConfig"
+      }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
     "type": "console.page/route",
     "properties": {
       "exact": true,
@@ -173,6 +188,22 @@
         "href": "gpu-attestation"
       },
       "component": { "$codeRef": "TrusteeGpuTab" }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.tab/horizontalNav",
+    "properties": {
+      "model": {
+        "group": "confidentialcontainers.org",
+        "version": "v1alpha1",
+        "kind": "TrusteeConfig"
+      },
+      "page": {
+        "name": "%plugin__trustee-openshift-console-plugin~Health%",
+        "href": "health"
+      },
+      "component": { "$codeRef": "TrusteeHealthTab" }
     },
     "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
   },

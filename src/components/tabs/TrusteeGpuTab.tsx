@@ -1,12 +1,14 @@
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ResourceLink, useK8sWatchResource } from '@openshift-console/dynamic-plugin-sdk';
+import { Link } from 'react-router-dom-v5-compat';
 import {
   Alert,
   Card,
   CardBody,
   CardTitle,
   ClipboardCopy,
+  Content,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
@@ -15,7 +17,7 @@ import {
   PageSection,
 } from '@patternfly/react-core';
 import { CheckCircleIcon } from '@patternfly/react-icons';
-import { ConfigMapGVK } from '../../k8s/resources';
+import { ConfigMapGVK, TrusteeConfigModelRef } from '../../k8s/resources';
 import type { ConfigMapKind } from '../../k8s/types';
 import type { TrusteeTabProps } from './types';
 import '../trustee.css';
@@ -118,6 +120,54 @@ const TrusteeGpuTab: FC<TrusteeTabProps> = ({ obj }) => {
               'HTTP response headers indicate success. A failure usually means an egress firewall is blocking nras.attestation.nvidia.com.',
             )}
           </Alert>
+        </CardBody>
+      </Card>
+
+      <Card className="trustee-openshift-console-plugin__mb">
+        <CardTitle>{t('External setup')}</CardTitle>
+        <CardBody>
+          <Content component="p" className="trustee-openshift-console-plugin__mb">
+            {t('GPU attestation depends on services and access outside this cluster:')}
+          </Content>
+          <Content component="ul">
+            <Content component="li">
+              {t('Intel TDX host — obtain a PCCS API key from the ')}
+              <a
+                href="https://api.portal.trustedservices.intel.com"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {t('Intel Trusted Services API portal')}
+              </a>
+              {t(' to verify the CPU TEE that hosts the confidential GPU.')}
+            </Content>
+            <Content component="li">
+              {t(
+                'NVIDIA NRAS — remote GPU attestation requires an NVIDIA Remote Attestation Service (NRAS) licensing agreement and outbound HTTPS egress to ',
+              )}
+              <a
+                href="https://nras.attestation.nvidia.com"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                nras.attestation.nvidia.com
+              </a>
+              .
+            </Content>
+            <Content component="li">
+              {t(
+                'GPU attestation policy — configure the rules NRAS evidence is checked against on the ',
+              )}
+              {name ? (
+                <Link to={`/k8s/ns/${namespace}/${TrusteeConfigModelRef}/${name}/policies`}>
+                  {t('Policies tab')}
+                </Link>
+              ) : (
+                t('Policies tab')
+              )}
+              .
+            </Content>
+          </Content>
         </CardBody>
       </Card>
 
