@@ -79,6 +79,7 @@
     "exposedModules": {
       "TrusteeTopology": "./components/TrusteeTopology",
       "TrusteeAttestation": "./components/TrusteeAttestation",
+      "TrusteeActivity": "./components/TrusteeActivity",
       "DeployTrusteeWizard": "./components/DeployTrusteeWizard",
       "VerifyAttestation": "./components/VerifyAttestation",
       "TrusteePoliciesTab": "./components/tabs/TrusteePoliciesTab",

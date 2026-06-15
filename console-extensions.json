@@ -83,6 +83,17 @@
     "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
   },
   {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "trustee-activity",
+      "perspective": "admin",
+      "section": "trustee",
+      "name": "%plugin__trustee-openshift-console-plugin~Activity%",
+      "href": "/trustee/activity"
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
     "type": "console.navigation/resource-ns",
     "properties": {
       "id": "trustee-configs",
@@ -112,6 +123,15 @@
       "exact": true,
       "path": "/trustee/topology",
       "component": { "$codeRef": "TrusteeTopology" }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/trustee/activity",
+      "component": { "$codeRef": "TrusteeActivity" }
     },
     "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
   },

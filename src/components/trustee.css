@@ -93,6 +93,16 @@
   color: var(--pf-t--global--icon--color--status--danger--default);
 }
 
+.trustee-openshift-console-plugin__activity {
+  max-block-size: 60vh;
+  overflow: auto;
+}
+
+.trustee-openshift-console-plugin__activity-row {
+  padding-block: var(--pf-t--global--spacer--xs, 0.25rem);
+  border-block-end: 1px solid var(--pf-t--global--border--color--default);
+}
+
 /* ---- Attestation topology (custom SVG) ---- */
 .trustee-openshift-console-plugin__topo {
   overflow: auto;
