@@ -29,6 +29,7 @@ import {
   ProgressStepper,
   TextInput,
 } from '@patternfly/react-core';
+import type { K8sResourceCommon } from '@openshift-console/dynamic-plugin-sdk';
 import type { FC } from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom-v5-compat';
@@ -37,11 +38,13 @@ import { useTrusteeConfigs } from '../k8s/hooks';
 import {
   ConfigMapGVK,
   DeploymentGVK,
+  IngressConfigGVK,
   TRUSTEE_KBS_DEPLOYMENT,
   TRUSTEE_NAMESPACE,
   TrusteeConfigModel,
 } from '../k8s/resources';
 import type { ConfigMapKind, DeploymentKind, TrusteeConfigKind } from '../k8s/types';
+import GenerateTlsSecretModal from './GenerateTlsSecretModal';
 import './trustee.css';
 
 type ProfileType = 'Permissive' | 'Restricted';
@@ -87,6 +90,14 @@ const DeployTrusteeWizard: FC = () => {
   const [tokenSecret, setTokenSecret] = useState('');
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const [tlsModalOpen, setTlsModalOpen] = useState(false);
+
+  // Cluster apps domain — offered as a SAN so generated certs also cover Routes.
+  const [ingressConfig] = useK8sWatchResource<K8sResourceCommon & { spec?: { domain?: string } }>({
+    groupVersionKind: IngressConfigGVK,
+    name: 'cluster',
+  });
+  const ingressDomain = ingressConfig?.spec?.domain ?? '';
 
   const restricted = profileType === 'Restricted';
   const httpsRequiredMissing = restricted && httpsSecret.trim() === '';
@@ -382,8 +393,18 @@ const DeployTrusteeWizard: FC = () => {
                         </HelperTextItem>
                       </HelperText>
                     </FormHelperText>
+                    <Button
+                      variant="secondary"
+                      className="trustee-openshift-console-plugin__mt"
+                      isDisabled={namespace.trim() === ''}
+                      onClick={() => {
+                        setTlsModalOpen(true);
+                      }}
+                    >
+                      {t('Generate TLS secret')}
+                    </Button>
                     <ExpandableSection
-                      toggleText={t('How to generate this TLS secret')}
+                      toggleText={t('Generate it manually instead (custom CA)')}
                       className="trustee-openshift-console-plugin__mt"
                     >
                       <Content
@@ -391,13 +412,26 @@ const DeployTrusteeWizard: FC = () => {
                         className="trustee-openshift-console-plugin__mb trustee-openshift-console-plugin__muted"
                       >
                         {t(
-                          'Generate a self-signed cert for the KBS and load it as the TLS secret below (substitute your own CA for production):',
+                          'Or generate a self-signed cert for the KBS yourself and load it as the TLS secret (substitute your own CA for production):',
                         )}
                       </Content>
                       <CodeBlock>
                         <CodeBlockCode>{tlsSecretCmd}</CodeBlockCode>
                       </CodeBlock>
                     </ExpandableSection>
+                    {tlsModalOpen && (
+                      <GenerateTlsSecretModal
+                        trusteeConfigName={name}
+                        namespace={namespace.trim() || TRUSTEE_NAMESPACE}
+                        ingressDomain={ingressDomain}
+                        onCreated={(s) => {
+                          setHttpsSecret(s);
+                        }}
+                        onClose={() => {
+                          setTlsModalOpen(false);
+                        }}
+                      />
+                    )}
                   </FormGroup>
                   <FormGroup
                     label={t('Attestation token verification secret (optional)')}

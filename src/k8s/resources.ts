@@ -79,6 +79,13 @@ export const InfrastructureGVK: K8sGroupVersionKind = {
   kind: 'Infrastructure',
 };
 
+/** config.openshift.io/v1 Ingress (singleton "cluster") — spec.domain is the apps wildcard domain. */
+export const IngressConfigGVK: K8sGroupVersionKind = {
+  group: 'config.openshift.io',
+  version: 'v1',
+  kind: 'Ingress',
+};
+
 /** v1 Event — the attestation probe reads a pod's recent events for failure reasons. */
 export const EventGVK: K8sGroupVersionKind = { version: 'v1', kind: 'Event' };
 
@@ -172,6 +179,9 @@ export const RoleBindingModel: K8sModel = {
  * python3, bash, curl). Public — needs no pull secret to pull the image itself.
  */
 export const COCO_TOOLS_IMAGE = 'quay.io/openshift_sandboxed_containers/coco-tools:1.12';
+
+/** Stock UBI9 — ships openssl + curl + base64; the in-cluster TLS-secret generator runs in it. */
+export const UBI9_IMAGE = 'registry.access.redhat.com/ubi9/ubi';
 
 /**
  * Cluster pull secret. veritas needs it to pull the OCP release extensions image

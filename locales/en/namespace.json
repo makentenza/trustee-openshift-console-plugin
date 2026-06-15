@@ -1,0 +1,4 @@
+{
+  "Check the Job {{job}} in {{ns}} for details.": "Check the Job {{job}} in {{ns}} for details.",
+  "Created in the {{ns}} namespace; referenced as the HTTPS TLS secret.": "Created in the {{ns}} namespace; referenced as the HTTPS TLS secret."
+}
