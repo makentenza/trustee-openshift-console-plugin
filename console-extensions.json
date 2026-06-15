@@ -74,6 +74,17 @@
   {
     "type": "console.navigation/href",
     "properties": {
+      "id": "trustee-attestation",
+      "perspective": "admin",
+      "section": "trustee",
+      "name": "%plugin__trustee-openshift-console-plugin~Attestation status%",
+      "href": "/trustee/attestation"
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
       "id": "trustee-deploy",
       "perspective": "admin",
       "section": "trustee",
@@ -127,6 +138,15 @@
       "exact": true,
       "path": "/trustee/topology",
       "component": { "$codeRef": "TrusteeTopology" }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/trustee/attestation",
+      "component": { "$codeRef": "TrusteeAttestation" }
     },
     "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
   },

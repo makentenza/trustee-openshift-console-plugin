@@ -84,6 +84,10 @@
   color: var(--pf-t--global--icon--color--status--info--default);
 }
 
+.trustee-openshift-console-plugin__icon-danger {
+  color: var(--pf-t--global--icon--color--status--danger--default);
+}
+
 /* ---- Attestation topology (custom SVG) ---- */
 .trustee-openshift-console-plugin__topo {
   overflow: auto;

@@ -86,6 +86,17 @@ export type InfrastructureKind = K8sResourceCommon & {
   };
 };
 
+/** A v1 Event — the attestation probe scans reason/message for failure signatures. */
+export type EventKind = K8sResourceCommon & {
+  reason?: string;
+  message?: string;
+  type?: string;
+  count?: number;
+  lastTimestamp?: string;
+  eventTime?: string;
+  involvedObject?: { uid?: string; name?: string; namespace?: string; kind?: string };
+};
+
 /**
  * confidentialcontainers.org/v1alpha1 TrusteeConfig — the high-level, user-facing
  * attestation CR. The operator generates the KBS, KbsConfig, policies, reference

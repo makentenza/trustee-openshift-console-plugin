@@ -79,6 +79,9 @@ export const InfrastructureGVK: K8sGroupVersionKind = {
   kind: 'Infrastructure',
 };
 
+/** v1 Event — the attestation probe reads a pod's recent events for failure reasons. */
+export const EventGVK: K8sGroupVersionKind = { version: 'v1', kind: 'Event' };
+
 export const ConfigMapModel: K8sModel = {
   apiVersion: 'v1',
   kind: 'ConfigMap',
@@ -190,6 +193,11 @@ export const SNP_NODE_LABEL = 'amd.feature.node.kubernetes.io/snp';
 /** The in-cluster Service the Trustee operator creates for the KBS workload. */
 export const KBS_SERVICE_NAME = 'kbs-service';
 export const KBS_SERVICE_PORT = 8080;
+/** Operator-generated ConfigMap holding RVPS reference values: <name>-rvps-reference-values. */
+export const RVPS_REFERENCE_VALUES_SUFFIX = '-rvps-reference-values';
+export const RVPS_REFERENCE_VALUES_KEY = 'reference-values.json';
+/** Confidential Data Hub port inside the guest — the in-VM attestation probe target. */
+export const CDH_RESOURCE_PROBE_PORT = 8006;
 
 // `kind~group~version` reference string for tab/action/flag extensions.
 export const TrusteeConfigModelRef = `${TRUSTEE_GROUP}~${TRUSTEE_VERSION}~TrusteeConfig`;
