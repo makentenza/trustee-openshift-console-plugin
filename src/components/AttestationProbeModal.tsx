@@ -42,6 +42,7 @@ import {
   ServiceAccountModel,
 } from '../k8s/resources';
 import type { ConfigMapKind, JobKind } from '../k8s/types';
+import type { EvidenceRecord } from '../utils/evidence';
 import './trustee.css';
 
 interface Props {
@@ -49,31 +50,6 @@ interface Props {
   kbsEndpoint: string;
   clusterName: string;
   onClose: () => void;
-}
-
-interface EvidenceRecord {
-  schema?: string;
-  timestamp?: string;
-  cluster?: string | null;
-  workload?: {
-    namespace?: string;
-    name?: string;
-    uid?: string;
-    node?: string;
-    runtimeClassName?: string;
-    phase?: string;
-    hasInitData?: boolean;
-    initdataSha256?: string | null;
-  };
-  trustee?: { kbsEndpoint?: string | null };
-  probe?: {
-    method?: string;
-    cdhPath?: string;
-    execExitCode?: number;
-    response?: string;
-    error?: string;
-  };
-  verdict?: 'passed' | 'failed' | 'inconclusive';
 }
 
 const isAlreadyExists = (e: unknown): boolean =>
@@ -116,6 +92,7 @@ const PROBE_SCRIPT = [
   "verdict = 'passed' if prc == 0 else ('failed' if prc == 22 else 'inconclusive')",
   'rec = {',
   "  'schema': 'trustee.attestation.evidence/v1',",
+  "  'source': 'probe',",
   "  'timestamp': os.environ.get('TS'),",
   "  'cluster': os.environ.get('CLUSTER_NAME') or None,",
   "  'workload': {'namespace': os.environ.get('POD_NS'), 'name': os.environ.get('POD_NAME'),",
@@ -128,7 +105,7 @@ const PROBE_SCRIPT = [
   '}',
   'print(json.dumps(rec, indent=2))',
   'PY',
-  'oc create configmap "${EVIDENCE_CM}" -n "${POD_NS}" --from-file=evidence.json=/tmp/evidence.json --dry-run=client -o yaml | oc apply -f -',
+  'oc create configmap "${EVIDENCE_CM}" -n "${POD_NS}" --from-file=evidence.json=/tmp/evidence.json --dry-run=client -o yaml | oc label --local -f - trustee.attestation/evidence=true "trustee.attestation/pod=${POD_NAME}" -o yaml | oc apply -f -',
   'echo "EVIDENCE_WRITTEN ${EVIDENCE_CM}"',
 ].join('\n');
 

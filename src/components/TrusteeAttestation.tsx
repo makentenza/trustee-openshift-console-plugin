@@ -76,6 +76,13 @@ import {
   type Verdict,
 } from '../utils/attestation';
 import { teeShort } from '../utils/topology';
+import {
+  decodeJwt,
+  evidenceKey,
+  parseEvidence,
+  relativeTime,
+  type EvidenceRecord,
+} from '../utils/evidence';
 import AttestationProbeModal from './AttestationProbeModal';
 import './trustee.css';
 
@@ -133,7 +140,8 @@ const ProbeDetail: FC<{
   ctx: AttestContext;
   onCollect: () => void;
   links: { referenceValues: string; health: string };
-}> = ({ w, ctx, onCollect, links }) => {
+  evidence?: EvidenceRecord;
+}> = ({ w, ctx, onCollect, links, evidence }) => {
   const { t } = useTranslation('plugin__trustee-openshift-console-plugin');
   const [events] = useK8sWatchResource<EventKind[]>({
     groupVersionKind: EventGVK,
@@ -146,69 +154,108 @@ const ProbeDetail: FC<{
   const checks = buildChecks(w, ctx);
   const rems = remediation(w, ctx, blocking, links);
 
+  const decoded = decodeJwt(evidence?.token);
   return (
-    <Grid hasGutter>
-      <GridItem md={6}>
-        <Content component="p">
-          <strong>{t('Checks')}</strong>
-        </Content>
-        {checks.map((c) => (
-          <Flex key={c.id} gap={{ default: 'gapSm' }} className={`${PREFIX}__mb`}>
-            <FlexItem>
-              <CheckRowIcon state={c.state} />
-            </FlexItem>
-            <FlexItem>
-              <div>{c.label}</div>
-              <div className={`${PREFIX}__muted`}>{c.detail}</div>
-            </FlexItem>
-          </Flex>
-        ))}
-        <Content component="p" className={`${PREFIX}__mt`}>
-          <strong>{t('Recent events')}</strong>
-        </Content>
-        {probeEvents.length === 0 ? (
+    <>
+      {evidence && (
+        <Alert
+          variant={
+            evidence.verdict === 'passed'
+              ? 'success'
+              : evidence.verdict === 'failed'
+                ? 'danger'
+                : 'warning'
+          }
+          isInline
+          title={`${t('Collected evidence')} (${evidence.source ?? 'probe'}) · ${
+            evidence.verdict ?? ''
+          } · ${relativeTime(evidence.timestamp)}`}
+          className={`${PREFIX}__mb`}
+        >
           <div className={`${PREFIX}__muted`}>
-            {t('No warning or attestation-related events for this pod.')}
+            {evidence.probe?.method}
+            {evidence.probe?.cdhPath ? ` · ${evidence.probe.cdhPath}` : ''}
           </div>
-        ) : (
-          probeEvents.map((e, i) => (
-            <div key={i} className={`${PREFIX}__mb`}>
-              <Label color={e.type === 'Warning' ? 'red' : 'grey'} isCompact>
-                {e.reason || e.type}
-              </Label>{' '}
-              <span className={`${PREFIX}__muted`}>{e.message}</span>
-            </div>
-          ))
-        )}
-      </GridItem>
-      <GridItem md={6}>
-        <Content component="p">
-          <strong>{t('How to fix it')}</strong>
-        </Content>
-        {rems.map((r, i) => (
-          <div key={i} className={`${PREFIX}__mb`}>
-            <div>{r.text}</div>
-            {r.cdhCommand ? (
-              <ClipboardCopy isReadOnly hoverTip={t('Copy')} clickTip={t('Copied')}>
-                {cdhProbeCommand(w.namespace, w.name)}
+          {decoded ? (
+            <div className={`${PREFIX}__mt`}>
+              <div className={`${PREFIX}__muted`}>{t('Attestation token claims (EAR)')}</div>
+              <ClipboardCopy
+                isCode
+                isReadOnly
+                isExpanded
+                variant="expansion"
+                hoverTip={t('Copy')}
+                clickTip={t('Copied')}
+              >
+                {JSON.stringify(decoded.payload, null, 2)}
               </ClipboardCopy>
-            ) : r.href ? (
-              <Link to={r.href}>{t('Open')}</Link>
-            ) : null}
+            </div>
+          ) : null}
+        </Alert>
+      )}
+      <Grid hasGutter>
+        <GridItem md={6}>
+          <Content component="p">
+            <strong>{t('Checks')}</strong>
+          </Content>
+          {checks.map((c) => (
+            <Flex key={c.id} gap={{ default: 'gapSm' }} className={`${PREFIX}__mb`}>
+              <FlexItem>
+                <CheckRowIcon state={c.state} />
+              </FlexItem>
+              <FlexItem>
+                <div>{c.label}</div>
+                <div className={`${PREFIX}__muted`}>{c.detail}</div>
+              </FlexItem>
+            </Flex>
+          ))}
+          <Content component="p" className={`${PREFIX}__mt`}>
+            <strong>{t('Recent events')}</strong>
+          </Content>
+          {probeEvents.length === 0 ? (
+            <div className={`${PREFIX}__muted`}>
+              {t('No warning or attestation-related events for this pod.')}
+            </div>
+          ) : (
+            probeEvents.map((e, i) => (
+              <div key={i} className={`${PREFIX}__mb`}>
+                <Label color={e.type === 'Warning' ? 'red' : 'grey'} isCompact>
+                  {e.reason || e.type}
+                </Label>{' '}
+                <span className={`${PREFIX}__muted`}>{e.message}</span>
+              </div>
+            ))
+          )}
+        </GridItem>
+        <GridItem md={6}>
+          <Content component="p">
+            <strong>{t('How to fix it')}</strong>
+          </Content>
+          {rems.map((r, i) => (
+            <div key={i} className={`${PREFIX}__mb`}>
+              <div>{r.text}</div>
+              {r.cdhCommand ? (
+                <ClipboardCopy isReadOnly hoverTip={t('Copy')} clickTip={t('Copied')}>
+                  {cdhProbeCommand(w.namespace, w.name)}
+                </ClipboardCopy>
+              ) : r.href ? (
+                <Link to={r.href}>{t('Open')}</Link>
+              ) : null}
+            </div>
+          ))}
+          <div className={`${PREFIX}__mt`}>
+            <Button variant="secondary" onClick={onCollect}>
+              {t('Collect attestation evidence')}
+            </Button>
           </div>
-        ))}
-        <div className={`${PREFIX}__mt`}>
-          <Button variant="secondary" onClick={onCollect}>
-            {t('Collect attestation evidence')}
-          </Button>
-        </div>
-        <div className={`${PREFIX}__mt`}>
-          <Link to={`/trustee/verify/${w.namespace}/${w.name}`}>
-            {t('Open guided verification')}
-          </Link>
-        </div>
-      </GridItem>
-    </Grid>
+          <div className={`${PREFIX}__mt`}>
+            <Link to={`/trustee/verify/${w.namespace}/${w.name}`}>
+              {t('Open guided verification')}
+            </Link>
+          </div>
+        </GridItem>
+      </Grid>
+    </>
   );
 };
 
@@ -255,6 +302,21 @@ const TrusteeAttestation: FC = () => {
     isList: true,
   });
   const refPresent = useMemo(() => referenceValuesPresent(cms ?? []), [cms]);
+
+  const [evidenceCms] = useK8sWatchResource<ConfigMapKind[]>({
+    groupVersionKind: ConfigMapGVK,
+    isList: true,
+    selector: { matchLabels: { 'trustee.attestation/evidence': 'true' } },
+  });
+  const evidenceByKey = useMemo(() => {
+    const m = new Map<string, EvidenceRecord>();
+    (evidenceCms ?? []).forEach((cm) => {
+      const rec = parseEvidence(cm.data?.['evidence.json']);
+      const key = evidenceKey(rec);
+      if (rec && key && (rec.timestamp ?? '') >= (m.get(key)?.timestamp ?? '')) m.set(key, rec);
+    });
+    return m;
+  }, [evidenceCms]);
 
   const ctx: AttestContext = useMemo(
     () => ({ kbsReady, referenceValuesPresent: refPresent }),
@@ -400,6 +462,7 @@ const TrusteeAttestation: FC = () => {
               <DataList aria-label={t('Confidential workload attestation status')}>
                 {visibleRows.map(({ w, verdict }) => {
                   const open = expanded.has(w.uid);
+                  const ev = evidenceByKey.get(`${w.namespace}/${w.name}`);
                   return (
                     <DataListItem key={w.uid} isExpanded={open}>
                       <DataListItemRow>
@@ -447,6 +510,25 @@ const TrusteeAttestation: FC = () => {
                             <DataListCell key="verdict">
                               <Label color={verdictColor(verdict)}>{verdictLabel(verdict)}</Label>
                             </DataListCell>,
+                            <DataListCell key="evidence">
+                              {ev ? (
+                                <Label
+                                  color={
+                                    ev.verdict === 'passed'
+                                      ? 'green'
+                                      : ev.verdict === 'failed'
+                                        ? 'red'
+                                        : 'grey'
+                                  }
+                                  isCompact
+                                >
+                                  {ev.source === 'sidecar' ? t('live') : t('evidence')} ·{' '}
+                                  {ev.verdict} · {relativeTime(ev.timestamp)}
+                                </Label>
+                              ) : (
+                                <span className={`${PREFIX}__muted`}>{t('none')}</span>
+                              )}
+                            </DataListCell>,
                           ]}
                         />
                       </DataListItemRow>
@@ -460,6 +542,7 @@ const TrusteeAttestation: FC = () => {
                             ctx={ctx}
                             onCollect={() => setEvidenceFor(w)}
                             links={tabLinks}
+                            evidence={ev}
                           />
                         )}
                       </DataListContent>
