@@ -46,6 +46,17 @@ Trustee and confidential containers can run on the **same cluster**. `ClusterIP`
 in-cluster (the co-located default); use `NodePort`/`LoadBalancer` to reach it from a separate
 cluster.
 
+## Screenshots
+
+### Attestation status
+![Attestation status](docs/images/11_trustee_status.png)
+
+### Trustee setup
+![Trustee setup](docs/images/12_trustee_setup.png)
+
+### Attestation topology
+![Attestation topology](docs/images/13_trustee_topology.png)
+
 ## Stack
 
 Matches `coco-openshift-console-plugin` / `osc-openshift-console-plugin` (OCP **4.21**): React 17,
