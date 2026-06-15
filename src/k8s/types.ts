@@ -89,6 +89,16 @@ export type InfrastructureKind = K8sResourceCommon & {
 /** A v1 Namespace — we only check existence by name. */
 export type NamespaceKind = K8sResourceCommon;
 
+/** A route.openshift.io/v1 Route — we read the host + which Service it targets. */
+export type RouteKind = K8sResourceCommon & {
+  spec?: {
+    host?: string;
+    to?: { name?: string };
+    tls?: { termination?: string };
+  };
+  status?: { ingress?: { host?: string }[] };
+};
+
 /** A v1 Event — the attestation probe scans reason/message for failure signatures. */
 export type EventKind = K8sResourceCommon & {
   reason?: string;

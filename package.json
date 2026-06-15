@@ -84,6 +84,7 @@
       "VerifyAttestation": "./components/VerifyAttestation",
       "TrusteePoliciesTab": "./components/tabs/TrusteePoliciesTab",
       "TrusteeReferenceValuesTab": "./components/tabs/TrusteeReferenceValuesTab",
+      "TrusteeInitdataTab": "./components/tabs/TrusteeInitdataTab",
       "TrusteeSecretsTab": "./components/tabs/TrusteeSecretsTab",
       "TrusteeGpuTab": "./components/tabs/TrusteeGpuTab",
       "TrusteeHealthTab": "./components/tabs/TrusteeHealthTab",

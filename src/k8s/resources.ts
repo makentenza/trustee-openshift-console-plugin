@@ -85,6 +85,13 @@ export const EventGVK: K8sGroupVersionKind = { version: 'v1', kind: 'Event' };
 /** v1 Namespace — used to default the console's active project to the Trustee namespace. */
 export const NamespaceGVK: K8sGroupVersionKind = { version: 'v1', kind: 'Namespace' };
 
+/** route.openshift.io/v1 Route — the externally reachable KBS endpoint for hub-and-spoke. */
+export const RouteGVK: K8sGroupVersionKind = {
+  group: 'route.openshift.io',
+  version: 'v1',
+  kind: 'Route',
+};
+
 export const ConfigMapModel: K8sModel = {
   apiVersion: 'v1',
   kind: 'ConfigMap',
@@ -201,6 +208,11 @@ export const RVPS_REFERENCE_VALUES_SUFFIX = '-rvps-reference-values';
 export const RVPS_REFERENCE_VALUES_KEY = 'reference-values.json';
 /** Confidential Data Hub port inside the guest — the in-VM attestation probe target. */
 export const CDH_RESOURCE_PROBE_PORT = 8006;
+/** Reference-value name under which the initdata measurement (PCR8) is registered in RVPS. */
+export const INITDATA_REFERENCE_VALUE_NAME = 'init_data';
+/** ConfigMap (<tc>-shared-initdata) + label for initdata shared with the workload owner. */
+export const SHARED_INITDATA_CM_SUFFIX = '-shared-initdata';
+export const SHARED_INITDATA_LABEL = 'trustee.attestation/shared-initdata';
 
 // `kind~group~version` reference string for tab/action/flag extensions.
 export const TrusteeConfigModelRef = `${TRUSTEE_GROUP}~${TRUSTEE_VERSION}~TrusteeConfig`;

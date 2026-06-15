@@ -194,6 +194,22 @@
         "kind": "TrusteeConfig"
       },
       "page": {
+        "name": "%plugin__trustee-openshift-console-plugin~Initdata%",
+        "href": "initdata"
+      },
+      "component": { "$codeRef": "TrusteeInitdataTab" }
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.tab/horizontalNav",
+    "properties": {
+      "model": {
+        "group": "confidentialcontainers.org",
+        "version": "v1alpha1",
+        "kind": "TrusteeConfig"
+      },
+      "page": {
         "name": "%plugin__trustee-openshift-console-plugin~Delivered secrets%",
         "href": "secrets"
       },

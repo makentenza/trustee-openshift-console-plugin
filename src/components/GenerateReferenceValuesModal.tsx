@@ -74,8 +74,9 @@ const buildScript = (opts: {
   xfamFeatures: string[];
   rvpsConfigMap: string;
   namespace: string;
+  hasInitdata: boolean;
 }): string => {
-  const { tee, ocpVersion, gpu, xfamFeatures, rvpsConfigMap, namespace } = opts;
+  const { tee, ocpVersion, gpu, xfamFeatures, rvpsConfigMap, namespace, hasInitdata } = opts;
   const gpuFlag = gpu ? '--gpu' : '';
   const xfamFlags = xfamFeatures.map((f) => `--hw-xfam-allow ${f}`).join(' ');
   // Collapse any accidental double spaces from empty flags so the command line is clean.
@@ -83,7 +84,7 @@ const buildScript = (opts: {
     'veritas --platform baremetal',
     `--tee ${tee}`,
     `--ocp-version ${ocpVersion}`,
-    '--initdata /initdata/initdata.toml',
+    hasInitdata ? '--initdata /initdata/initdata.toml' : '',
     '--authfile /auth/.dockerconfigjson',
     gpuFlag,
     xfamFlags,
@@ -150,12 +151,13 @@ const GenerateReferenceValuesModal: FC<Props> = ({
     (job?.status?.failed ?? 0) > 0 ||
     (job?.status?.conditions ?? []).some((c) => c.type === 'Failed' && c.status === 'True');
 
-  const valid = ocpVersion.trim() !== '' && initdata.trim() !== '';
+  const valid = ocpVersion.trim() !== '';
 
   const onGenerate = async () => {
     setBusy(true);
     setError('');
     try {
+      const hasInitdata = initdata.trim() !== '';
       // a. Copy the cluster pull secret into this namespace so the Job can mount it.
       let dockerconfigjson: string | undefined;
       try {
@@ -202,20 +204,22 @@ const GenerateReferenceValuesModal: FC<Props> = ({
       }
       await k8sCreate({ model: SecretModel, data: pullSecret });
 
-      // b. initdata ConfigMap — delete-then-create so the content is fresh.
+      // b. initdata ConfigMap — only when an initdata.toml was provided (optional).
       const initdataCmName = `${P}-initdata`;
-      const initdataCm: ConfigMapKind = {
-        apiVersion: 'v1',
-        kind: 'ConfigMap',
-        metadata: { name: initdataCmName, namespace },
-        data: { 'initdata.toml': initdata },
-      };
-      try {
-        await k8sDelete({ model: ConfigMapModel, resource: initdataCm });
-      } catch (e) {
-        if (!isNotFound(e)) throw e;
+      if (hasInitdata) {
+        const initdataCm: ConfigMapKind = {
+          apiVersion: 'v1',
+          kind: 'ConfigMap',
+          metadata: { name: initdataCmName, namespace },
+          data: { 'initdata.toml': initdata },
+        };
+        try {
+          await k8sDelete({ model: ConfigMapModel, resource: initdataCm });
+        } catch (e) {
+          if (!isNotFound(e)) throw e;
+        }
+        await k8sCreate({ model: ConfigMapModel, data: initdataCm });
       }
-      await k8sCreate({ model: ConfigMapModel, data: initdataCm });
 
       // c. ServiceAccount the Job runs as.
       try {
@@ -281,6 +285,7 @@ const GenerateReferenceValuesModal: FC<Props> = ({
           .filter((f) => f.length > 0),
         rvpsConfigMap,
         namespace,
+        hasInitdata,
       });
 
       const jobResource: JobKind & Record<string, unknown> = {
@@ -303,13 +308,13 @@ const GenerateReferenceValuesModal: FC<Props> = ({
                   command: ['bash', '-c'],
                   args: [script],
                   volumeMounts: [
-                    { name: 'initdata', mountPath: '/initdata' },
+                    ...(hasInitdata ? [{ name: 'initdata', mountPath: '/initdata' }] : []),
                     { name: 'auth', mountPath: '/auth' },
                   ],
                 },
               ],
               volumes: [
-                { name: 'initdata', configMap: { name: initdataCmName } },
+                ...(hasInitdata ? [{ name: 'initdata', configMap: { name: initdataCmName } }] : []),
                 {
                   name: 'auth',
                   secret: {
@@ -375,7 +380,7 @@ const GenerateReferenceValuesModal: FC<Props> = ({
             </FormHelperText>
           </FormGroup>
 
-          <FormGroup label={t('initdata.toml')} isRequired fieldId="rvgen-initdata">
+          <FormGroup label={t('initdata.toml (optional)')} fieldId="rvgen-initdata">
             <TextArea
               id="rvgen-initdata"
               value={initdata}
@@ -386,14 +391,14 @@ const GenerateReferenceValuesModal: FC<Props> = ({
               rows={8}
               resizeOrientation="vertical"
               aria-label={t('initdata.toml')}
-              placeholder={t("paste the initdata.toml from the coco plugin's Initdata builder")}
+              placeholder={t('Optional — paste an initdata.toml to fold its measurement in')}
               style={{ fontFamily: 'var(--pf-t--global--font--family--mono)' }}
             />
             <FormHelperText>
               <HelperText>
                 <HelperTextItem>
                   {t(
-                    'The initdata.toml whose PCR8 measurement is folded into the reference values. Produce it with the Initdata builder in the confidential containers plugin.',
+                    'Optional. Leave empty to generate just the platform (TEE firmware/kernel) measurements; add an initdata’s PCR8 separately from the Initdata tab. If you paste an initdata.toml here, its measurement is folded in too.',
                   )}
                 </HelperTextItem>
               </HelperText>
