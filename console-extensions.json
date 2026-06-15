@@ -44,7 +44,8 @@
     "properties": {
       "id": "trustee",
       "perspective": "admin",
-      "name": "%plugin__trustee-openshift-console-plugin~Confidential Attestation%"
+      "name": "%plugin__trustee-openshift-console-plugin~Confidential Attestation%",
+      "insertAfter": "confidential-containers"
     },
     "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
   },
