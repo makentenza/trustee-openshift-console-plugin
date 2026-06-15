@@ -2,6 +2,7 @@ import {
   DocumentTitle,
   k8sCreate,
   ListPageHeader,
+  ResourceLink,
   useK8sWatchResource,
 } from '@openshift-console/dynamic-plugin-sdk';
 import {
@@ -41,7 +42,9 @@ import {
   IngressConfigGVK,
   TRUSTEE_KBS_DEPLOYMENT,
   TRUSTEE_NAMESPACE,
+  TrusteeConfigGVK,
   TrusteeConfigModel,
+  TrusteeConfigModelRef,
 } from '../k8s/resources';
 import type { ConfigMapKind, DeploymentKind, TrusteeConfigKind } from '../k8s/types';
 import GenerateTlsSecretModal from './GenerateTlsSecretModal';
@@ -91,6 +94,7 @@ const DeployTrusteeWizard: FC = () => {
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [tlsModalOpen, setTlsModalOpen] = useState(false);
+  const [createdRef, setCreatedRef] = useState<{ name: string; namespace: string } | undefined>();
 
   // Cluster apps domain — offered as a SAN so generated certs also cover Routes.
   const [ingressConfig] = useK8sWatchResource<K8sResourceCommon & { spec?: { domain?: string } }>({
@@ -102,6 +106,9 @@ const DeployTrusteeWizard: FC = () => {
   const restricted = profileType === 'Restricted';
   const httpsRequiredMissing = restricted && httpsSecret.trim() === '';
   const valid = name.trim() !== '' && namespace.trim() !== '' && !httpsRequiredMissing;
+  const nameExists = existing.some(
+    (e) => e.metadata?.name === name.trim() && e.metadata?.namespace === namespace.trim(),
+  );
 
   const buildSpec = (): TrusteeConfigKind['spec'] => ({
     profileType,
@@ -148,9 +155,10 @@ const DeployTrusteeWizard: FC = () => {
         spec: buildSpec(),
       };
       await k8sCreate({ model: TrusteeConfigModel, data: obj });
-      // Stay on this page so the progress stepper advances as the operator
-      // reconciles KBS; the "already deployed" banner appears once the watch
-      // picks up the new TrusteeConfig.
+      // Stay on the page and show a success panel linking to the new
+      // TrusteeConfig: the operator's progress shows in the stepper above, and
+      // the user isn't left wondering whether it worked / tempted to recreate it.
+      setCreatedRef({ name: name.trim(), namespace: namespace.trim() });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -163,7 +171,28 @@ const DeployTrusteeWizard: FC = () => {
       <DocumentTitle>{t('Trustee setup')}</DocumentTitle>
       <ListPageHeader title={t('Trustee setup')} />
       <PageSection>
-        {existingLoaded && existing.length > 0 && (
+        {createdRef ? (
+          <Alert
+            variant="success"
+            isInline
+            title={t('TrusteeConfig {{name}} created', { name: createdRef.name })}
+            className="trustee-openshift-console-plugin__mb"
+          >
+            <Content component="p">
+              {t(
+                'The operator is now deploying the KBS and generating its policies, reference values, and secrets — follow progress in the steps above. You don’t need to create another.',
+              )}
+            </Content>
+            <div className="trustee-openshift-console-plugin__mt">
+              <ResourceLink
+                groupVersionKind={TrusteeConfigGVK}
+                name={createdRef.name}
+                namespace={createdRef.namespace}
+                inline
+              />
+            </div>
+          </Alert>
+        ) : existingLoaded && existing.length > 0 ? (
           <Alert
             variant="info"
             isInline
@@ -179,7 +208,7 @@ const DeployTrusteeWizard: FC = () => {
               'There is already a TrusteeConfig on this cluster. Manage it from the Trustee overview, or create another below.',
             )}
           </Alert>
-        )}
+        ) : null}
         {/* What Trustee is & what happens after you create it */}
         <Card className="trustee-openshift-console-plugin__mb">
           <CardBody>
@@ -460,24 +489,60 @@ const DeployTrusteeWizard: FC = () => {
                       {error}
                     </Alert>
                   )}
+                  {!createdRef && nameExists && (
+                    <Alert
+                      variant="warning"
+                      isInline
+                      isPlain
+                      title={t(
+                        'A TrusteeConfig named {{name}} already exists in {{ns}} — rename to create another.',
+                        { name: name.trim(), ns: namespace.trim() },
+                      )}
+                    />
+                  )}
 
                   <ActionGroup>
-                    <Button
-                      variant="primary"
-                      onClick={() => void create()}
-                      isLoading={busy}
-                      isDisabled={busy || !valid}
-                    >
-                      {t('Create')}
-                    </Button>
-                    <Button
-                      variant="link"
-                      onClick={() => {
-                        navigate('/trustee');
-                      }}
-                    >
-                      {t('Cancel')}
-                    </Button>
+                    {createdRef ? (
+                      <>
+                        <Button
+                          variant="primary"
+                          onClick={() => {
+                            navigate(
+                              `/k8s/ns/${createdRef.namespace}/${TrusteeConfigModelRef}/${createdRef.name}`,
+                            );
+                          }}
+                        >
+                          {t('Open TrusteeConfig')}
+                        </Button>
+                        <Button
+                          variant="link"
+                          onClick={() => {
+                            navigate('/trustee');
+                          }}
+                        >
+                          {t('Go to attestation overview')}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          variant="primary"
+                          onClick={() => void create()}
+                          isLoading={busy}
+                          isDisabled={busy || !valid || nameExists}
+                        >
+                          {t('Create')}
+                        </Button>
+                        <Button
+                          variant="link"
+                          onClick={() => {
+                            navigate('/trustee');
+                          }}
+                        >
+                          {t('Cancel')}
+                        </Button>
+                      </>
+                    )}
                   </ActionGroup>
                 </Form>
               </CardBody>
