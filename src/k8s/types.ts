@@ -24,6 +24,19 @@ export type ContainerStatusKind = {
   image?: string;
 };
 
+/**
+ * Minimal batch/v1 Job shape — the reference-value generator watches the veritas
+ * Job and reports active / succeeded / failed.
+ */
+export type JobKind = K8sResourceCommon & {
+  status?: {
+    active?: number;
+    succeeded?: number;
+    failed?: number;
+    conditions?: { type: string; status: string; reason?: string; message?: string }[];
+  };
+};
+
 /** Minimal apps/v1 Deployment shape — the Health tab reads replica counts. */
 export type DeploymentKind = K8sResourceCommon & {
   spec?: {

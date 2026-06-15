@@ -53,10 +53,20 @@ export const KbsConfigModel: K8sModel = {
 export const PodGVK: K8sGroupVersionKind = { version: 'v1', kind: 'Pod' };
 export const ConfigMapGVK: K8sGroupVersionKind = { version: 'v1', kind: 'ConfigMap' };
 export const SecretGVK: K8sGroupVersionKind = { version: 'v1', kind: 'Secret' };
+export const ServiceAccountGVK: K8sGroupVersionKind = { version: 'v1', kind: 'ServiceAccount' };
 export const DeploymentGVK: K8sGroupVersionKind = {
   group: 'apps',
   version: 'v1',
   kind: 'Deployment',
+};
+export const JobGVK: K8sGroupVersionKind = { group: 'batch', version: 'v1', kind: 'Job' };
+
+// config.openshift.io/v1 ClusterVersion — read status.desired.version to default
+// the OCP version veritas pulls release extensions for.
+export const ClusterVersionGVK: K8sGroupVersionKind = {
+  group: 'config.openshift.io',
+  version: 'v1',
+  kind: 'ClusterVersion',
 };
 
 export const ConfigMapModel: K8sModel = {
@@ -89,6 +99,62 @@ export const DeploymentModel: K8sModel = {
   label: 'Deployment',
   labelPlural: 'Deployments',
 };
+
+// ---- Reference-value generation (veritas in-cluster Job + its RBAC) ----
+export const JobModel: K8sModel = {
+  apiGroup: 'batch',
+  apiVersion: 'v1',
+  kind: 'Job',
+  plural: 'jobs',
+  namespaced: true,
+  abbr: 'JOB',
+  label: 'Job',
+  labelPlural: 'Jobs',
+};
+
+export const ServiceAccountModel: K8sModel = {
+  apiVersion: 'v1',
+  kind: 'ServiceAccount',
+  plural: 'serviceaccounts',
+  namespaced: true,
+  abbr: 'SA',
+  label: 'ServiceAccount',
+  labelPlural: 'ServiceAccounts',
+};
+
+export const RoleModel: K8sModel = {
+  apiGroup: 'rbac.authorization.k8s.io',
+  apiVersion: 'v1',
+  kind: 'Role',
+  plural: 'roles',
+  namespaced: true,
+  abbr: 'R',
+  label: 'Role',
+  labelPlural: 'Roles',
+};
+
+export const RoleBindingModel: K8sModel = {
+  apiGroup: 'rbac.authorization.k8s.io',
+  apiVersion: 'v1',
+  kind: 'RoleBinding',
+  plural: 'rolebindings',
+  namespaced: true,
+  abbr: 'RB',
+  label: 'RoleBinding',
+  labelPlural: 'RoleBindings',
+};
+
+/**
+ * coco-tools image that ships the `veritas` reference-value generator (plus oc,
+ * python3, bash, curl). Public — needs no pull secret to pull the image itself.
+ */
+export const COCO_TOOLS_IMAGE = 'quay.io/openshift_sandboxed_containers/coco-tools:1.12';
+
+/**
+ * Cluster pull secret. veritas needs it to pull the OCP release extensions image
+ * (quay.io/openshift-release-dev) when computing measurements.
+ */
+export const CLUSTER_PULL_SECRET = { name: 'pull-secret', namespace: 'openshift-config' };
 
 // ---- Well-known names / locations ----
 /** Default namespace for the Red Hat build of Trustee operator. */
