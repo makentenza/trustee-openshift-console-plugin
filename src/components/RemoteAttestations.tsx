@@ -44,6 +44,7 @@ type RemoteSpoke = {
   clientIp: string;
   lastSeen?: string;
   attests: number;
+  released: number;
   attestOk: boolean;
   attestDenied: boolean;
   resources: { path: string; released: boolean }[];
@@ -103,6 +104,7 @@ export const RemoteAttestations: FC = () => {
           ({
             clientIp: ip,
             attests: 0,
+            released: 0,
             attestOk: false,
             attestDenied: false,
             resources: [],
@@ -111,11 +113,18 @@ export const RemoteAttestations: FC = () => {
         if (e.kind === 'attest') {
           s.attests += 1;
           if (e.status && e.status < 300) s.attestOk = true;
-          if (e.status === 401 || e.status === 403) s.attestDenied = true;
+          else if (e.status === 401 || e.status === 403) s.attestDenied = true;
         } else if (e.kind === 'resource' && e.path) {
+          const ok = !!e.status && e.status < 300;
+          // The KBS only releases a resource after a valid attestation token, so a
+          // released secret is itself proof the workload attested — even when the
+          // one-time POST /attest line has already aged out of the log window.
+          if (ok) {
+            s.attestOk = true;
+            s.released += 1;
+          }
           const path = e.path.replace('/kbs/v0/resource/', '');
-          if (!s.resources.some((r) => r.path === path))
-            s.resources.push({ path, released: !!e.status && e.status < 300 });
+          if (!s.resources.some((r) => r.path === path)) s.resources.push({ path, released: ok });
         }
         byIp.set(ip, s);
       }
@@ -206,7 +215,9 @@ export const RemoteAttestations: FC = () => {
                     </Label>
                   </div>
                   <div className={`${PREFIX}__muted`}>
-                    {t('{{count}} attestation request(s)', { count: s.attests })}
+                    {s.released > 0
+                      ? t('{{count}} secret(s) released', { count: s.released })
+                      : t('{{count}} attestation request(s)', { count: s.attests })}
                     {s.lastSeen ? ` · ${relativeTime(s.lastSeen)}` : ''}
                   </div>
                   {s.resources.length > 0 && (

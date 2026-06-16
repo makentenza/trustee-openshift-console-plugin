@@ -11,6 +11,8 @@
   "{{count}} nodes_other": "{{count}} nodes_other",
   "{{count}} restarts_one": "{{count}} restarts_one",
   "{{count}} restarts_other": "{{count}} restarts_other",
+  "{{count}} secret(s) released_one": "{{count}} secret(s) released_one",
+  "{{count}} secret(s) released_other": "{{count}} secret(s) released_other",
   "{{ready}}/{{desired}} ready, {{available}} available": "{{ready}}/{{desired}} ready, {{available}} available",
   "{{ready}}/{{total}} ready": "{{ready}}/{{total}} ready",
   "↳ attests here": "↳ attests here",
