@@ -11,10 +11,23 @@
 // clusters) is shown by the dashed "spoke clusters" container — remote spokes
 // attest over the network to the same KBS endpoint; we do not fabricate them.
 // ---------------------------------------------------------------------------
-import { SNP_NODE_LABEL, TDX_NODE_LABEL } from '../k8s/resources';
+import { CC_INIT_DATA_ANNOTATION, SNP_NODE_LABEL, TDX_NODE_LABEL } from '../k8s/resources';
 import type { InfrastructureKind, NodeKind, PodKind, TeeType } from '../k8s/types';
 
 export type WlStatus = 'healthy' | 'pending' | 'error';
+
+/**
+ * Which Trustee a workload actually attests to, read from its initdata KBS URL:
+ * - 'local'  — this in-cluster Trustee (kbs-service)
+ * - 'remote' — a different Trustee (external route / hub) — NOT attested here
+ * - 'none'   — no initdata, so it does not attest at all
+ * - 'unknown'— has initdata but the URL hasn't been decoded yet
+ */
+export type AttestKind = 'local' | 'remote' | 'none' | 'unknown';
+export interface AttestInfo {
+  target: 'local' | 'remote';
+  host: string;
+}
 
 export interface TopoWorkload {
   uid: string;
@@ -24,6 +37,8 @@ export interface TopoWorkload {
   runtime: string;
   gpu: boolean;
   status: WlStatus;
+  attest: AttestKind;
+  attestHost?: string; // the KBS host this workload attests to (when remote)
 }
 
 export interface TopoNode {
@@ -80,6 +95,37 @@ export const podStatusCategory = (pod: PodKind): WlStatus => {
 export const truncate = (s: string, n: number): string =>
   s.length > n ? `${s.slice(0, n - 1)}…` : s;
 
+// ---- attestation target (decode the pod's initdata) ----
+
+/**
+ * Decode the KBS URL out of a pod's `cc_init_data` annotation (gzip+base64 of an
+ * initdata.toml) in the browser. Returns null if absent/undecodable.
+ */
+export const decodeInitdataKbsUrl = async (annotation: string): Promise<string | null> => {
+  try {
+    const bin = atob(annotation.trim());
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const toml = await new Response(stream).text();
+    const m = toml.match(/url\s*=\s*['"]([^'"]+)['"]/);
+    return m ? m[1].trim() : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Is this KBS URL the in-cluster Trustee (kbs-service) or a remote one? */
+export const classifyKbsUrl = (kbsUrl: string, localServiceName: string): AttestInfo => {
+  let host = kbsUrl;
+  try {
+    host = new URL(kbsUrl).host;
+  } catch {
+    /* keep the raw string */
+  }
+  const local = host.startsWith(`${localServiceName}.`) || host.startsWith(`${localServiceName}:`);
+  return { target: local ? 'local' : 'remote', host };
+};
+
 // ---- model ----
 
 /** Build the live (this-cluster) topology model from confidential pods + nodes. */
@@ -87,6 +133,7 @@ export const buildTopoCluster = (
   pods: PodKind[],
   nodes: NodeKind[],
   infra: InfrastructureKind[],
+  attestByUid: Map<string, AttestInfo> = new Map(),
 ): TopoCluster => {
   const clusterName =
     infra.find((i) => i.metadata?.name === 'cluster')?.status?.infrastructureName ?? 'This cluster';
@@ -103,14 +150,20 @@ export const buildTopoCluster = (
   confidential.forEach((p) => {
     const nodeName = p.spec?.nodeName ?? '';
     const runtime = p.spec?.runtimeClassName ?? '';
+    const uid = p.metadata?.uid ?? `${p.metadata?.namespace ?? ''}/${p.metadata?.name ?? ''}`;
+    const hasInitData = !!p.metadata?.annotations?.[CC_INIT_DATA_ANNOTATION];
+    const decoded = attestByUid.get(uid);
+    const attest: AttestKind = !hasInitData ? 'none' : decoded ? decoded.target : 'unknown';
     const wl: TopoWorkload = {
-      uid: p.metadata?.uid ?? `${p.metadata?.namespace ?? ''}/${p.metadata?.name ?? ''}`,
+      uid,
       name: p.metadata?.name ?? '',
       namespace: p.metadata?.namespace ?? '',
       nodeName,
       runtime,
       gpu: runtime.includes('gpu'),
       status: podStatusCategory(p),
+      attest,
+      attestHost: decoded?.host,
     };
     const arr = byNode.get(nodeName) ?? [];
     arr.push(wl);
@@ -191,7 +244,7 @@ const GEO = {
   nodePad: 12,
   nodeHeaderH: 32,
   wlW: 174,
-  wlH: 48,
+  wlH: 60,
   wlGap: 10,
   emptyH: 48,
   clusterGap: 22,

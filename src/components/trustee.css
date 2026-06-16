@@ -135,6 +135,21 @@
   font-size: var(--pf-t--global--font--size--xs, 0.75rem);
 }
 
+.trustee-openshift-console-plugin__topo-attest--local {
+  fill: var(--pf-t--global--icon--color--status--success--default);
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+}
+
+.trustee-openshift-console-plugin__topo-attest--remote {
+  fill: var(--pf-t--global--icon--color--status--warning--default);
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+}
+
+.trustee-openshift-console-plugin__topo-attest--none {
+  fill: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--xs, 0.75rem);
+}
+
 .trustee-openshift-console-plugin__topo-hub {
   fill: var(--pf-t--global--background--color--primary--default);
   stroke: var(--pf-t--global--icon--color--status--info--default);

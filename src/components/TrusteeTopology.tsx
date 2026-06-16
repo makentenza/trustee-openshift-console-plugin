@@ -1,5 +1,5 @@
 import type { FC } from 'react';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom-v5-compat';
 import { useTranslation } from 'react-i18next';
 import {
@@ -21,6 +21,7 @@ import {
 import { LockIcon } from '@patternfly/react-icons';
 import { useKbsConfigs, useTrusteeConfigs, useTrusteeDefaultProject } from '../k8s/hooks';
 import {
+  CC_INIT_DATA_ANNOTATION,
   InfrastructureGVK,
   KBS_SERVICE_NAME,
   KBS_SERVICE_PORT,
@@ -38,10 +39,14 @@ import type {
 } from '../k8s/types';
 import {
   buildTopoCluster,
+  classifyKbsUrl,
+  decodeInitdataKbsUrl,
+  isConfidentialRuntimeName,
   layoutTopology,
   teeLong,
   teeShort,
   truncate,
+  type AttestInfo,
   type LaidNode,
   type LaidWorkload,
   type WlStatus,
@@ -117,6 +122,29 @@ const TrusteeTopology: FC = () => {
   const hubReady = isReady(primaryTc) || (kbsConfigs[0]?.status?.isReady ?? false);
   const kbsEndpoint = `${KBS_SERVICE_NAME}.${hubNs}:${KBS_SERVICE_PORT}`;
 
+  // Decode each confidential pod's initdata KBS URL so the topology shows which
+  // Trustee each workload ACTUALLY attests to (this one vs a remote hub) — not
+  // merely where it runs.
+  const [attestByUid, setAttestByUid] = useState<Map<string, AttestInfo>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const next = new Map<string, AttestInfo>();
+      for (const p of pods ?? []) {
+        if (!isConfidentialRuntimeName(p.spec?.runtimeClassName)) continue;
+        const ann = p.metadata?.annotations?.[CC_INIT_DATA_ANNOTATION];
+        if (!ann) continue;
+        const uid = p.metadata?.uid ?? `${p.metadata?.namespace ?? ''}/${p.metadata?.name ?? ''}`;
+        const url = await decodeInitdataKbsUrl(ann);
+        if (url) next.set(uid, classifyKbsUrl(url, KBS_SERVICE_NAME));
+      }
+      if (!cancelled) setAttestByUid(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pods]);
+
   // Remote spokes can't resolve the in-cluster Service DNS — they reach the KBS
   // over the network through its externally-exposed Route. Find the Route that
   // targets the KBS Service in the hub namespace.
@@ -132,8 +160,8 @@ const TrusteeTopology: FC = () => {
   const remoteEndpoint = routeHost ? `https://${routeHost}` : '';
 
   const layout = useMemo(
-    () => layoutTopology(buildTopoCluster(pods ?? [], nodes ?? [], infra ?? [])),
-    [pods, nodes, infra],
+    () => layoutTopology(buildTopoCluster(pods ?? [], nodes ?? [], infra ?? [], attestByUid)),
+    [pods, nodes, infra, attestByUid],
   );
 
   const loading = !tcLoaded || !podsLoaded || !nodesLoaded;
@@ -191,6 +219,30 @@ const TrusteeTopology: FC = () => {
 
   const renderWorkload = (lw: LaidWorkload) => {
     const { wl } = lw;
+    // Does this workload actually attest to THIS Trustee? Decoded from its initdata.
+    const elsewhere = wl.attest === 'remote' || wl.attest === 'none';
+    const attestText =
+      wl.attest === 'local'
+        ? t('↳ attests here')
+        : wl.attest === 'remote'
+          ? `↗ ${truncate(wl.attestHost ?? t('remote Trustee'), 19)}`
+          : wl.attest === 'none'
+            ? t('no initdata')
+            : t('↳ checking…');
+    const attestCls =
+      wl.attest === 'local'
+        ? `${PREFIX}__topo-attest--local`
+        : wl.attest === 'remote'
+          ? `${PREFIX}__topo-attest--remote`
+          : `${PREFIX}__topo-attest--none`;
+    const attestTitle =
+      wl.attest === 'local'
+        ? t('attests to this Trustee')
+        : wl.attest === 'remote'
+          ? t('attests to a remote Trustee at {{host}}', { host: wl.attestHost ?? '?' })
+          : wl.attest === 'none'
+            ? t('no initdata — does not attest')
+            : t('decoding initdata…');
     return (
       <g
         key={wl.uid}
@@ -205,6 +257,7 @@ const TrusteeTopology: FC = () => {
           height={lw.h}
           rx={6}
           className={`${PREFIX}__topo-wl`}
+          strokeDasharray={elsewhere ? '4 3' : undefined}
         />
         <circle cx={lw.x + 14} cy={lw.y + 16} r={4} className={dotClass(wl.status)} />
         <text x={lw.x + 26} y={lw.y + 19} className={`${PREFIX}__topo-text`}>
@@ -220,10 +273,13 @@ const TrusteeTopology: FC = () => {
             {t('GPU')}
           </text>
         )}
-        <text x={lw.x + 26} y={lw.y + 35} className={`${PREFIX}__topo-subtle`}>
+        <text x={lw.x + 26} y={lw.y + 34} className={`${PREFIX}__topo-subtle`}>
           {truncate(wl.namespace, 20)}
         </text>
-        <title>{`${wl.namespace}/${wl.name} · ${wl.runtime} · ${wl.status}`}</title>
+        <text x={lw.x + 26} y={lw.y + 50} className={attestCls}>
+          {attestText}
+        </text>
+        <title>{`${wl.namespace}/${wl.name} · ${wl.runtime} · ${wl.status} · ${attestTitle}`}</title>
       </g>
     );
   };
@@ -257,7 +313,7 @@ const TrusteeTopology: FC = () => {
               </Content>
               <Content component="p">
                 {t(
-                  'One Trustee can attest workloads across many clusters (hub-and-spoke). This view shows the workloads in the current cluster live; remote spoke clusters reach this Trustee over the network through its external Route (shown below) — the in-cluster Service DNS only works for co-located workloads. Trustee and confidential containers may also run in the same cluster — then this cluster is both hub and spoke.',
+                  'One Trustee can attest workloads across many clusters (hub-and-spoke). This view shows the workloads running in the current cluster, and which Trustee each one actually attests to (read from its initdata): a solid box marked “↳ attests here” targets this Trustee; a dashed box marked “↗ …” attests to a remote Trustee and is NOT verified here; “no initdata” means it does not attest at all. Remote spoke clusters reach this Trustee over the network through its external Route (shown below) — the in-cluster Service DNS only works for co-located workloads.',
                 )}
               </Content>
             </Alert>
