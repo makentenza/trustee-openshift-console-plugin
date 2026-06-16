@@ -81,7 +81,6 @@
       "TrusteeAttestation": "./components/TrusteeAttestation",
       "TrusteeActivity": "./components/TrusteeActivity",
       "DeployTrusteeWizard": "./components/DeployTrusteeWizard",
-      "VerifyAttestation": "./components/VerifyAttestation",
       "TrusteePoliciesTab": "./components/tabs/TrusteePoliciesTab",
       "TrusteeReferenceValuesTab": "./components/tabs/TrusteeReferenceValuesTab",
       "TrusteeInitdataTab": "./components/tabs/TrusteeInitdataTab",

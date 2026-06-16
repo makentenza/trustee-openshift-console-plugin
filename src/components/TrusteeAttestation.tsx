@@ -43,9 +43,6 @@ import { useKbsConfigs, useTrusteeConfigs, useTrusteeDefaultProject } from '../k
 import {
   ConfigMapGVK,
   EventGVK,
-  InfrastructureGVK,
-  KBS_SERVICE_NAME,
-  KBS_SERVICE_PORT,
   NodeGVK,
   PodGVK,
   RVPS_REFERENCE_VALUES_KEY,
@@ -53,19 +50,11 @@ import {
   TRUSTEE_NAMESPACE,
   TrusteeConfigModelRef,
 } from '../k8s/resources';
-import type {
-  ConfigMapKind,
-  EventKind,
-  InfrastructureKind,
-  NodeKind,
-  PodKind,
-  TrusteeConfigKind,
-} from '../k8s/types';
+import type { ConfigMapKind, EventKind, NodeKind, PodKind, TrusteeConfigKind } from '../k8s/types';
 import {
   baselineVerdict,
   buildAttestWorkloads,
   buildChecks,
-  cdhProbeCommand,
   hasBlockingEvent,
   remediation,
   scanEvents,
@@ -84,7 +73,6 @@ import {
   relativeTime,
   type EvidenceRecord,
 } from '../utils/evidence';
-import AttestationProbeModal from './AttestationProbeModal';
 import './trustee.css';
 
 const PREFIX = 'trustee-openshift-console-plugin';
@@ -139,10 +127,9 @@ const StatTile: FC<{ value: number; label: string; onClick?: () => void; active?
 const ProbeDetail: FC<{
   w: AttestWorkload;
   ctx: AttestContext;
-  onCollect: () => void;
   links: { referenceValues: string; health: string };
   evidence?: EvidenceRecord;
-}> = ({ w, ctx, onCollect, links, evidence }) => {
+}> = ({ w, ctx, links, evidence }) => {
   const { t } = useTranslation('plugin__trustee-openshift-console-plugin');
   const [events] = useK8sWatchResource<EventKind[]>({
     groupVersionKind: EventGVK,
@@ -235,28 +222,27 @@ const ProbeDetail: FC<{
           <Content component="p">
             <strong>{t('How to fix it')}</strong>
           </Content>
-          {rems.map((r, i) => (
-            <div key={i} className={`${PREFIX}__mb`}>
-              <div>{r.text}</div>
-              {r.cdhCommand ? (
-                <ClipboardCopy isReadOnly hoverTip={t('Copy')} clickTip={t('Copied')}>
-                  {cdhProbeCommand(w.namespace, w.name)}
-                </ClipboardCopy>
-              ) : r.href ? (
-                <Link to={r.href}>{t('Open')}</Link>
-              ) : null}
-            </div>
-          ))}
-          <div className={`${PREFIX}__mt`}>
-            <Button variant="secondary" onClick={onCollect}>
-              {t('Collect attestation evidence')}
-            </Button>
-          </div>
-          <div className={`${PREFIX}__mt`}>
-            <Link to={`/trustee/verify/${w.namespace}/${w.name}`}>
-              {t('Open guided verification')}
-            </Link>
-          </div>
+          {rems
+            .filter((r) => !r.cdhCommand)
+            .map((r, i) => (
+              <div key={i} className={`${PREFIX}__mb`}>
+                <div>{r.text}</div>
+                {r.href ? <Link to={r.href}>{t('Open')}</Link> : null}
+              </div>
+            ))}
+          <Alert
+            variant="info"
+            isInline
+            isPlain
+            title={t('Confirming attestation')}
+            className={`${PREFIX}__mt`}
+          >
+            <Content component="p" className={`${PREFIX}__muted`}>
+              {t(
+                'A confidential guest is sealed — the console cannot exec into it to probe. Deploy the workload with the self-reporting attestation evidence sidecar; it fetches a secret from the in-guest Confidential Data Hub (released only after a successful attestation) and publishes a verifiable evidence record that appears here automatically.',
+              )}
+            </Content>
+          </Alert>
         </GridItem>
       </Grid>
     </>
@@ -277,11 +263,6 @@ const TrusteeAttestation: FC = () => {
     groupVersionKind: NodeGVK,
     isList: true,
   });
-  const [infra] = useK8sWatchResource<InfrastructureKind[]>({
-    groupVersionKind: InfrastructureGVK,
-    isList: true,
-  });
-
   const primaryTc = useMemo(
     () => trusteeConfigs.find((tc) => isReady(tc)) ?? trusteeConfigs[0],
     [trusteeConfigs],
@@ -289,9 +270,6 @@ const TrusteeAttestation: FC = () => {
   const hubNs =
     primaryTc?.metadata?.namespace ?? kbsConfigs[0]?.metadata?.namespace ?? TRUSTEE_NAMESPACE;
   const kbsReady = isReady(primaryTc) || (kbsConfigs[0]?.status?.isReady ?? false);
-  const clusterName =
-    (infra ?? []).find((i) => i.metadata?.name === 'cluster')?.status?.infrastructureName ?? '';
-  const kbsEndpoint = `${KBS_SERVICE_NAME}.${hubNs}:${KBS_SERVICE_PORT}`;
   const tcBase =
     primaryTc?.metadata?.namespace && primaryTc?.metadata?.name
       ? `/k8s/ns/${primaryTc.metadata.namespace}/${TrusteeConfigModelRef}/${primaryTc.metadata.name}`
@@ -353,7 +331,6 @@ const TrusteeAttestation: FC = () => {
       else next.add(id);
       return next;
     });
-  const [evidenceFor, setEvidenceFor] = useState<AttestWorkload | undefined>();
   const [filter, setFilter] = useState<Verdict | 'all'>('all');
   const toggleFilter = (v: Verdict) => setFilter((f) => (f === v ? 'all' : v));
   const visibleRows = filter === 'all' ? rows : rows.filter((r) => r.verdict === filter);
@@ -543,15 +520,7 @@ const TrusteeAttestation: FC = () => {
                         aria-label={t('Attestation probe for {{name}}', { name: w.name })}
                         isHidden={!open}
                       >
-                        {open && (
-                          <ProbeDetail
-                            w={w}
-                            ctx={ctx}
-                            onCollect={() => setEvidenceFor(w)}
-                            links={tabLinks}
-                            evidence={ev}
-                          />
-                        )}
+                        {open && <ProbeDetail w={w} ctx={ctx} links={tabLinks} evidence={ev} />}
                       </DataListContent>
                     </DataListItem>
                   );
@@ -561,14 +530,6 @@ const TrusteeAttestation: FC = () => {
           </>
         )}
       </PageSection>
-      {evidenceFor && (
-        <AttestationProbeModal
-          workload={{ namespace: evidenceFor.namespace, name: evidenceFor.name }}
-          kbsEndpoint={kbsEndpoint}
-          clusterName={clusterName}
-          onClose={() => setEvidenceFor(undefined)}
-        />
-      )}
     </>
   );
 };
