@@ -33,7 +33,7 @@ import {
 import type { K8sResourceCommon } from '@openshift-console/dynamic-plugin-sdk';
 import type { FC } from 'react';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom-v5-compat';
+import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useTrusteeConfigs } from '../k8s/hooks';
 import {

@@ -126,11 +126,13 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
   // Default the URL from the chosen endpoint, until the user edits it.
   useEffect(() => {
     if (urlTouched) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTrusteeUrl(mode === 'external' ? (externalUrl ?? '') : inClusterUrl);
   }, [mode, externalUrl, inClusterUrl, urlTouched]);
 
   // Pre-fill the cert from the HTTPS secret, until the user edits it.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!certTouched && autoCert) setKbsCert(autoCert);
   }, [autoCert, certTouched]);
 

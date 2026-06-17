@@ -1,6 +1,6 @@
 import type { FC } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom-v5-compat';
+import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
   DocumentTitle,

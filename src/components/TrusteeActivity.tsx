@@ -89,6 +89,7 @@ const TrusteeActivity: FC = () => {
   }, [kbsPod, hubNs]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchLogs();
   }, [fetchLogs]);
 

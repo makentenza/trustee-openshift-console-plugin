@@ -114,6 +114,7 @@ const GenerateTlsSecretModal: FC<Props> = ({
   // Once the Job succeeds, hand the secret name back to the wizard (once).
   useEffect(() => {
     if (succeeded && !done) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDone(true);
       onCreated(secretName.trim());
     }
