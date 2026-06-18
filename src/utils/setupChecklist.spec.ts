@@ -11,6 +11,7 @@ const base: SetupInputs = {
   tcCreated: false,
   kbsReady: false,
   refValuesSet: false,
+  initdataRegistered: false,
   routeAdmitted: false,
 };
 
@@ -27,6 +28,7 @@ describe('buildSetupSteps', () => {
       'trusteeconfig',
       'kbs',
       'reference-values',
+      'initdata',
       'policies',
       'secrets',
       'gpu',
@@ -66,6 +68,18 @@ describe('buildSetupSteps', () => {
     expect(step(present, 'reference-values').state).toBe('ok');
   });
 
+  it('adds a required initdata step — ok once its PCR8 (init_data) is registered', () => {
+    const missing = buildSetupSteps({ ...base, tcCreated: true });
+    expect(step(missing, 'initdata')).toMatchObject({
+      required: true,
+      state: 'todo',
+      tab: 'initdata',
+    });
+
+    const done = buildSetupSteps({ ...base, tcCreated: true, initdataRegistered: true });
+    expect(step(done, 'initdata').state).toBe('ok');
+  });
+
   it('treats a missing hub-and-spoke Route as neutral, ok once admitted', () => {
     expect(step(buildSetupSteps(base), 'route').state).toBe('todo');
     expect(step(buildSetupSteps({ ...base, routeAdmitted: true }), 'route').state).toBe('ok');
@@ -99,6 +113,7 @@ describe('requiredStepsReady', () => {
       tcCreated: true,
       kbsReady: true,
       refValuesSet: true,
+      initdataRegistered: false,
       routeAdmitted: false,
     };
     expect(requiredStepsReady(ready)).toBe(true);

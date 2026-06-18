@@ -47,6 +47,7 @@ import { useTrusteeConfigs } from '../k8s/hooks';
 import {
   ConfigMapGVK,
   DeploymentGVK,
+  INITDATA_REFERENCE_VALUE_NAME,
   IngressConfigGVK,
   RouteGVK,
   TRUSTEE_KBS_DEPLOYMENT,
@@ -229,6 +230,9 @@ const DeployTrusteeWizard: FC = () => {
   const kbsUp = (kbsDeploy?.status?.readyReplicas ?? 0) > 0 || tcReady;
   const rv = (rvpsCm?.data?.['reference-values.json'] ?? '').trim();
   const refValuesSet = tcCreated && rv !== '' && rv !== '[]' && rv !== '{}';
+  // The Initdata tab registers the pod-config measurement under the reserved
+  // "init_data" name in RVPS — its presence means initdata is wired for attestation.
+  const initdataRegistered = rv.includes(INITDATA_REFERENCE_VALUE_NAME);
   const controllerRunning = (operatorDeploy?.status?.readyReplicas ?? 0) > 0;
   const route = findKbsRoute(routes ?? []);
   const routeAdmitted = !!route && (route.status?.ingress ?? []).some((ing) => !!ing.host);
@@ -246,6 +250,7 @@ const DeployTrusteeWizard: FC = () => {
     tcCreated,
     kbsReady: kbsUp,
     refValuesSet,
+    initdataRegistered,
     routeAdmitted,
   };
   const steps = buildSetupSteps(inputs);
@@ -279,6 +284,13 @@ const DeployTrusteeWizard: FC = () => {
         'The expected TEE measurements that evidence is checked against — generate them for your workload’s TEE (Intel TDX or AMD SEV-SNP, plus NVIDIA GPU if used). Trustee denies attestation until reference values exist.',
       ),
       action: t('Configure reference values'),
+    },
+    initdata: {
+      title: t('Generate workload initdata'),
+      desc: t(
+        'Initdata carries this KBS endpoint and the Kata Agent policy into each confidential pod and is measured into PCR8. Generate it here, register that PCR8 as a reference value, and share it with workload owners.',
+      ),
+      action: t('Open initdata'),
     },
     policies: {
       title: t('Tune attestation & resource policies'),
@@ -337,6 +349,13 @@ const DeployTrusteeWizard: FC = () => {
         return refValuesSet
           ? t('Reference values registered — attestation can match evidence.')
           : t('None registered yet — attestation stays denied until they exist.');
+      case 'initdata':
+        if (!tcCreated) return undefined;
+        return initdataRegistered
+          ? t('Initdata measurement (init_data) is registered in reference values.')
+          : t(
+              'Not registered yet — workloads need initdata to reach this KBS with a trusted, measured config.',
+            );
       case 'route':
         return routeAdmitted ? t('Reachable at {{host}}.', { host: routeHost }) : undefined;
       case 'verify':
