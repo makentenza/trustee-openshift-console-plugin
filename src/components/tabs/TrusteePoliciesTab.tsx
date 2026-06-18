@@ -1,9 +1,10 @@
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Gallery, PageSection } from '@patternfly/react-core';
+import { Alert, Content, Gallery, PageSection } from '@patternfly/react-core';
 import ConfigMapEditor from '../shared/ConfigMapEditor';
 import { regoTemplatesForPolicy, validateRego } from '../../utils/rego';
 import type { TrusteeTabProps } from './types';
+import '../trustee.css';
 
 /** Edit the Rego policies the operator generates from a TrusteeConfig. */
 const TrusteePoliciesTab: FC<TrusteeTabProps> = ({ obj }) => {
@@ -41,6 +42,19 @@ const TrusteePoliciesTab: FC<TrusteeTabProps> = ({ obj }) => {
 
   return (
     <PageSection>
+      <Content component="p" className="trustee-openshift-console-plugin__mb">
+        {t(
+          'The operator generates working default policies from your TrusteeConfig — edit them here only to customize trust decisions. Policies are written in Rego; use the template buttons to start from a known-good policy.',
+        )}
+      </Content>
+      <Content
+        component="p"
+        className="trustee-openshift-console-plugin__mb trustee-openshift-console-plugin__muted"
+      >
+        {t(
+          'The attestation policies (CPU and GPU) decide whether a workload’s TEE evidence is trusted; the resource policy then decides which secrets a trusted workload may retrieve. The Restricted profile enforces strict policies, while Permissive is lenient.',
+        )}
+      </Content>
       <Gallery hasGutter minWidths={{ default: '480px' }}>
         {policies.map((p) => (
           <ConfigMapEditor
