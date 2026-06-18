@@ -3,6 +3,7 @@ import {
   k8sCreate,
   ListPageHeader,
   ResourceLink,
+  useFlag,
   useK8sWatchResource,
 } from '@openshift-console/dynamic-plugin-sdk';
 import {
@@ -81,10 +82,112 @@ const StepIndicator: FC<{ state: SetupStepState; n: number }> = ({ state, n }) =
   return <span className={`${PREFIX}__step-num`}>{n}</span>;
 };
 
+// CLI install manifests for the Trustee operator (own-namespace install), matching the
+// package/channel/source the operator actually ships under (trustee-operator, stable,
+// redhat-operators).
+const TRUSTEE_OPERATOR_INSTALL_YAML = [
+  'apiVersion: v1',
+  'kind: Namespace',
+  'metadata:',
+  '  name: trustee-operator-system',
+  '---',
+  'apiVersion: operators.coreos.com/v1',
+  'kind: OperatorGroup',
+  'metadata:',
+  '  name: trustee-operator-group',
+  '  namespace: trustee-operator-system',
+  'spec:',
+  '  targetNamespaces:',
+  '    - trustee-operator-system',
+  '---',
+  'apiVersion: operators.coreos.com/v1alpha1',
+  'kind: Subscription',
+  'metadata:',
+  '  name: trustee-operator',
+  '  namespace: trustee-operator-system',
+  'spec:',
+  '  channel: stable',
+  '  name: trustee-operator',
+  '  source: redhat-operators',
+  '  sourceNamespace: openshift-marketplace',
+].join('\n');
+
+// Shown on the (un-gated) setup route when the Trustee operator's TrusteeConfig CRD is
+// absent — the rest of the section is gated on that CRD, so without this the section
+// would appear empty. Guides the admin to install the operator first.
+const TrusteeOperatorInstall: FC = () => {
+  const { t } = useTranslation('plugin__trustee-openshift-console-plugin');
+  const navigate = useNavigate();
+  return (
+    <>
+      <DocumentTitle>{t('Trustee setup')}</DocumentTitle>
+      <ListPageHeader title={t('Trustee setup')} />
+      <PageSection>
+        <Card>
+          <CardTitle>{t('Install the Red Hat build of Trustee operator')}</CardTitle>
+          <CardBody>
+            <Content component="p">
+              {t(
+                'Trustee is the confidential containers attestation service. Its operator provides the TrusteeConfig API this section is built around, and it isn’t installed on this cluster yet. Install it, then return here to deploy and configure Trustee.',
+              )}
+            </Content>
+            <Content component="p" className="trustee-openshift-console-plugin__mt">
+              {t('Requirements')}
+            </Content>
+            <Content component="ul">
+              <Content component="li">
+                {t(
+                  'Install on a trusted cluster, kept separate from the confidential workloads it attests.',
+                )}
+              </Content>
+              <Content component="li">{t('cluster-admin on this cluster.')}</Content>
+            </Content>
+            <div className="trustee-openshift-console-plugin__mt">
+              <Button
+                variant="primary"
+                onClick={() => void navigate('/operatorhub/all-namespaces?keyword=Trustee')}
+              >
+                {t('Install from OperatorHub')}
+              </Button>
+            </div>
+            <ExpandableSection
+              toggleText={t('Install from the CLI instead')}
+              className="trustee-openshift-console-plugin__mt"
+            >
+              <Content
+                component="p"
+                className="trustee-openshift-console-plugin__muted trustee-openshift-console-plugin__mb"
+              >
+                {t(
+                  'Create the operator namespace, OperatorGroup, and Subscription (stable channel, from redhat-operators):',
+                )}
+              </Content>
+              <CodeBlock>
+                <CodeBlockCode>{TRUSTEE_OPERATOR_INSTALL_YAML}</CodeBlockCode>
+              </CodeBlock>
+              <Content
+                component="p"
+                className="trustee-openshift-console-plugin__muted trustee-openshift-console-plugin__mt"
+              >
+                {t(
+                  'Once the operator’s ClusterServiceVersion reports Succeeded, this page becomes the guided Trustee setup.',
+                )}
+              </Content>
+            </ExpandableSection>
+          </CardBody>
+        </Card>
+      </PageSection>
+    </>
+  );
+};
+
 const DeployTrusteeWizard: FC = () => {
   const { t } = useTranslation('plugin__trustee-openshift-console-plugin');
   const navigate = useNavigate();
   const [existing, existingLoaded] = useTrusteeConfigs();
+  // The Trustee operator's TrusteeConfig CRD drives this flag. The setup route is
+  // un-gated, so when the flag is false we render the operator-install guide instead.
+  const trusteeInstalled = useFlag('TRUSTEE_TRUSTEECONFIG');
 
   // Live deployment state drives the guided checklist below — it reflects what the
   // operator has actually reconciled, not a fixed position.
@@ -351,6 +454,12 @@ const DeployTrusteeWizard: FC = () => {
       setBusy(false);
     }
   };
+
+  // Operator absent: guide its installation instead of the setup form (the section is
+  // visible pre-operator because this route is un-gated).
+  if (!trusteeInstalled) {
+    return <TrusteeOperatorInstall />;
+  }
 
   return (
     <>
