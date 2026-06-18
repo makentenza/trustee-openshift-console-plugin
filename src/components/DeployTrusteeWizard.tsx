@@ -27,14 +27,18 @@ import {
   GridItem,
   HelperText,
   HelperTextItem,
+  Label,
   PageSection,
-  ProgressStep,
-  ProgressStepper,
   TextInput,
 } from '@patternfly/react-core';
-import { CheckCircleIcon, ExclamationTriangleIcon, InProgressIcon } from '@patternfly/react-icons';
+import {
+  ArrowRightIcon,
+  CheckCircleIcon,
+  ExclamationTriangleIcon,
+  InProgressIcon,
+} from '@patternfly/react-icons';
 import type { K8sResourceCommon } from '@openshift-console/dynamic-plugin-sdk';
-import type { FC } from 'react';
+import type { FC, ReactNode } from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -46,12 +50,20 @@ import {
   RouteGVK,
   TRUSTEE_KBS_DEPLOYMENT,
   TRUSTEE_NAMESPACE,
+  TRUSTEE_OPERATOR_DEPLOYMENT,
   TrusteeConfigGVK,
   TrusteeConfigModel,
   TrusteeConfigModelRef,
 } from '../k8s/resources';
 import type { ConfigMapKind, DeploymentKind, RouteKind, TrusteeConfigKind } from '../k8s/types';
-import { buildReadiness } from '../utils/readiness';
+import { findKbsRoute } from '../utils/readiness';
+import {
+  buildSetupSteps,
+  requiredStepsReady,
+  type SetupInputs,
+  type SetupStep,
+  type SetupStepState,
+} from '../utils/setupChecklist';
 import GenerateTlsSecretModal from './GenerateTlsSecretModal';
 import './trustee.css';
 
@@ -60,10 +72,13 @@ type ServiceType = 'ClusterIP' | 'NodePort' | 'LoadBalancer';
 
 const PREFIX = 'trustee-openshift-console-plugin';
 
-const ReadinessIcon: FC<{ state: 'ok' | 'warn' | 'pending' }> = ({ state }) => {
+/** Status glyph for a checklist row: check / spinner / warning, or a step number for not-yet-started. */
+const StepIndicator: FC<{ state: SetupStepState; n: number }> = ({ state, n }) => {
   if (state === 'ok') return <CheckCircleIcon className={`${PREFIX}__icon-success`} />;
-  if (state === 'warn') return <ExclamationTriangleIcon className={`${PREFIX}__icon-warning`} />;
-  return <InProgressIcon className={`${PREFIX}__icon-info`} />;
+  if (state === 'pending') return <InProgressIcon className={`${PREFIX}__icon-info`} />;
+  if (state === 'attention')
+    return <ExclamationTriangleIcon className={`${PREFIX}__icon-warning`} />;
+  return <span className={`${PREFIX}__step-num`}>{n}</span>;
 };
 
 const DeployTrusteeWizard: FC = () => {
@@ -71,10 +86,19 @@ const DeployTrusteeWizard: FC = () => {
   const navigate = useNavigate();
   const [existing, existingLoaded] = useTrusteeConfigs();
 
-  // Live deployment progress for the stepper below — reflects what the operator
-  // has actually reconciled, not a fixed "step 1" position.
+  // Live deployment state drives the guided checklist below — it reflects what the
+  // operator has actually reconciled, not a fixed position.
   const tc = existing[0];
+  const tcName = tc?.metadata?.name;
   const tcNs = tc?.metadata?.namespace ?? TRUSTEE_NAMESPACE;
+
+  // The Trustee operator's controller-manager — confirms the operator is live (the
+  // page itself only renders when the TrusteeConfig CRD is present).
+  const [operatorDeploy] = useK8sWatchResource<DeploymentKind>({
+    groupVersionKind: DeploymentGVK,
+    name: TRUSTEE_OPERATOR_DEPLOYMENT,
+    namespace: TRUSTEE_NAMESPACE,
+  });
   const [kbsDeploy] = useK8sWatchResource<DeploymentKind>({
     groupVersionKind: DeploymentGVK,
     name: TRUSTEE_KBS_DEPLOYMENT,
@@ -87,13 +111,13 @@ const DeployTrusteeWizard: FC = () => {
       : 'rvps-reference-values',
     namespace: tcNs,
   });
-  // The external KBS Route feeds the post-install readiness panel below — a
-  // workload on a spoke reaches the KBS through it.
+  // The external KBS Route lets a workload on a spoke reach the KBS (hub-and-spoke).
   const [routes] = useK8sWatchResource<RouteKind[]>({
     groupVersionKind: RouteGVK,
     namespace: tcNs,
     isList: true,
   });
+
   const tcCreated = existing.length > 0;
   const tcReady =
     !!tc &&
@@ -102,31 +126,149 @@ const DeployTrusteeWizard: FC = () => {
   const kbsUp = (kbsDeploy?.status?.readyReplicas ?? 0) > 0 || tcReady;
   const rv = (rvpsCm?.data?.['reference-values.json'] ?? '').trim();
   const refValuesSet = tcCreated && rv !== '' && rv !== '[]' && rv !== '{}';
-  const stepDone = [tcCreated, kbsUp, refValuesSet, false];
-  const currentStep = stepDone.findIndex((d) => !d);
-  const stepVariant = (i: number): 'success' | 'info' | 'pending' =>
-    stepDone[i] ? 'success' : i === currentStep ? 'info' : 'pending';
+  const controllerRunning = (operatorDeploy?.status?.readyReplicas ?? 0) > 0;
+  const route = findKbsRoute(routes ?? []);
+  const routeAdmitted = !!route && (route.status?.ingress ?? []).some((ing) => !!ing.host);
+  const routeHost = route?.status?.ingress?.[0]?.host ?? route?.spec?.host ?? '';
+  // First non-Ready condition message — explains a TrusteeConfig stuck mid-reconcile.
+  const stuckReason = (tc?.status?.conditions ?? [])
+    .filter((c) => c.status !== 'True')
+    .map((c) => [c.reason, c.message].filter((s): s is string => !!s && s.length > 0).join(': '))
+    .find((s) => s.length > 0);
 
-  // Post-install readiness: TrusteeConfig reconciled + KBS Route admitted + RVPS
-  // reference values present, each with a sub-status line.
-  const readinessChecks = buildReadiness(
-    { tc, routes: routes ?? [], rvpsCm },
-    {
-      tcReconciled: t('Reconciled and ready.'),
-      tcReconciling: t('Created — waiting for the operator to reconcile…'),
-      tcConditionPrefix: t('Not ready: '),
-      routeAdmitted: (host) =>
-        t('Reachable at {{host}} — usable by a spoke (hub-and-spoke).', { host }),
-      routePending: t('Route created — waiting to be admitted by the router…'),
-      routeMissing: t(
-        'No external Route to kbs-service. Fine for a co-located (same-cluster) workload; create a passthrough Route to attest from another cluster.',
-      ),
-      refvalsPresent: t('Registered — attestation can match evidence.'),
-      refvalsMissing: t(
-        'None registered yet. Trustee rejects attestation until reference values exist (Reference values tab).',
+  const inputs: SetupInputs = {
+    // The page only renders when the TrusteeConfig CRD exists, so the operator is
+    // installed; controllerRunning just enriches the detail line.
+    operatorReady: true,
+    tcCreated,
+    kbsReady: kbsUp,
+    refValuesSet,
+    routeAdmitted,
+  };
+  const steps = buildSetupSteps(inputs);
+  const verifyReady = requiredStepsReady(inputs);
+  const createdHref = tcName ? `/k8s/ns/${tcNs}/${TrusteeConfigModelRef}/${tcName}` : undefined;
+
+  // Per-step copy. Built in the component so the strings are picked up by i18n.
+  const META: Record<SetupStep['id'], { title: string; desc: string; action?: string }> = {
+    operator: {
+      title: t('Trustee operator installed'),
+      desc: t(
+        'The Red Hat build of Trustee operator provides the TrusteeConfig API and reconciles everything below it from a single resource.',
       ),
     },
+    trusteeconfig: {
+      title: t('Create the TrusteeConfig'),
+      desc: t(
+        'One resource the operator expands into the KBS plus its policies, reference values, and secrets. Use the form below.',
+      ),
+    },
+    kbs: {
+      title: t('Operator deploys the Key Broker Service'),
+      desc: t(
+        'Automatic. The operator rolls out the KBS and generates its attestation and resource policies and secrets.',
+      ),
+      action: t('View health'),
+    },
+    'reference-values': {
+      title: t('Register reference values'),
+      desc: t(
+        'The expected TEE measurements that evidence is checked against. Trustee denies attestation until reference values exist.',
+      ),
+      action: t('Configure reference values'),
+    },
+    policies: {
+      title: t('Tune attestation & resource policies'),
+      desc: t(
+        'Default policies are generated for you. Customize them to control which workloads are trusted and which secrets they receive.',
+      ),
+      action: t('Open policies'),
+    },
+    secrets: {
+      title: t('Add delivered secrets'),
+      desc: t('The sealed secrets the KBS releases to a workload after it attests successfully.'),
+      action: t('Open delivered secrets'),
+    },
+    gpu: {
+      title: t('Enable GPU attestation'),
+      desc: t(
+        'For NVIDIA H100 confidential GPUs. Uses the NVIDIA Remote Attestation Service (remote verifier only; Technology Preview).',
+      ),
+      action: t('Open GPU attestation'),
+    },
+    route: {
+      title: t('Expose the KBS for hub-and-spoke'),
+      desc: t(
+        'Only when confidential workloads run on a separate cluster: expose kbs-service through a Route or LoadBalancer so remote workloads can reach it.',
+      ),
+    },
+    verify: {
+      title: t('Verify attestation'),
+      desc: t('Boot a confidential workload and confirm it attests and receives its secrets.'),
+      action: t('Go to attestation overview'),
+    },
+  };
+
+  const detailFor = (id: SetupStep['id']): ReactNode => {
+    switch (id) {
+      case 'operator':
+        return controllerRunning
+          ? t('The operator controller-manager is running in {{nsName}}.', {
+              nsName: TRUSTEE_NAMESPACE,
+            })
+          : t('TrusteeConfig CRDs are present on this cluster.');
+      case 'trusteeconfig':
+        return tcCreated
+          ? t('Created: {{name}}.', { name: tcName })
+          : t('Not created yet — use the form below.');
+      case 'kbs':
+        if (!tcCreated) return undefined;
+        if (kbsUp) return t('KBS deployed and reconciled.');
+        return stuckReason
+          ? t('Waiting — {{reason}}', { reason: stuckReason })
+          : t('Waiting for the operator to deploy the KBS…');
+      case 'reference-values':
+        if (!tcCreated) return undefined;
+        return refValuesSet
+          ? t('Reference values registered — attestation can match evidence.')
+          : t('None registered yet — attestation stays denied until they exist.');
+      case 'route':
+        return routeAdmitted ? t('Reachable at {{host}}.', { host: routeHost }) : undefined;
+      case 'verify':
+        return verifyReady
+          ? t('Required steps are complete — boot a workload to confirm.')
+          : t('Finish the required steps first.');
+      default:
+        return undefined;
+    }
+  };
+
+  const linkButton = (label: string, href: string): ReactNode => (
+    <Button
+      variant="link"
+      isInline
+      icon={<ArrowRightIcon />}
+      iconPosition="end"
+      onClick={() => void navigate(href)}
+    >
+      {label}
+    </Button>
   );
+
+  const actionFor = (step: SetupStep): ReactNode => {
+    // The final verify link is always available — it's just the attestation overview.
+    if (step.id === 'verify') return linkButton(META.verify.action ?? '', '/trustee');
+    // Open the created TrusteeConfig resource.
+    if (step.id === 'trusteeconfig')
+      return createdHref ? linkButton(t('Open TrusteeConfig'), createdHref) : undefined;
+    // Tab deep-links (reference values, policies, secrets, GPU) and the KBS health tab.
+    // Before a TrusteeConfig exists these have nowhere to point — a single note above
+    // the list explains they unlock then, so rows stay quiet.
+    const tab = step.tab ?? (step.id === 'kbs' ? 'health' : undefined);
+    const label = META[step.id].action;
+    if (!tab || !label || !tcName) return undefined;
+    return linkButton(label, `/k8s/ns/${tcNs}/${TrusteeConfigModelRef}/${tcName}/${tab}`);
+  };
 
   const [name, setName] = useState('trustee-config');
   const [namespace, setNamespace] = useState(TRUSTEE_NAMESPACE);
@@ -198,9 +340,8 @@ const DeployTrusteeWizard: FC = () => {
         spec: buildSpec(),
       };
       await k8sCreate({ model: TrusteeConfigModel, data: obj });
-      // Stay on the page and show a success panel linking to the new
-      // TrusteeConfig: the operator's progress shows in the stepper above, and
-      // the user isn't left wondering whether it worked / tempted to recreate it.
+      // Stay on the page and show a success panel: the operator's progress shows in
+      // the checklist above, and the user isn't tempted to recreate the resource.
       setCreatedRef({ name: name.trim(), namespace: namespace.trim() });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -223,7 +364,7 @@ const DeployTrusteeWizard: FC = () => {
           >
             <Content component="p">
               {t(
-                'The operator is now deploying the KBS and generating its policies, reference values, and secrets — follow progress in the steps above. You don’t need to create another.',
+                'The operator is now deploying the KBS and generating its policies, reference values, and secrets — follow progress in the checklist above. You don’t need to create another.',
               )}
             </Content>
             <div className="trustee-openshift-console-plugin__mt">
@@ -248,144 +389,152 @@ const DeployTrusteeWizard: FC = () => {
             }
           >
             {t(
-              'There is already a TrusteeConfig on this cluster. Manage it from the Trustee overview, or create another below.',
+              'There is already a TrusteeConfig on this cluster. Follow the checklist below to finish configuring it, or create another.',
             )}
           </Alert>
         ) : null}
-        {/* What Trustee is & what happens after you create it */}
+
+        {/* Before you begin — what Trustee is + the requirements and out-of-cluster prep. */}
         <Card className="trustee-openshift-console-plugin__mb">
+          <CardTitle>{t('Before you begin')}</CardTitle>
           <CardBody>
             <Content component="p">
               {t(
-                'Trustee is the Red Hat build of the confidential containers attestation service. From this single resource, the operator deploys the Key Broker Service (KBS) and its attestation and resource policies, reference values, and secrets. Your confidential workloads then attest to Trustee when they boot and, if their TEE evidence is trusted, receive their sealed secrets.',
+                'Trustee is the Red Hat build of the confidential containers attestation service. From a single TrusteeConfig, the operator deploys the Key Broker Service (KBS) and its attestation and resource policies, reference values, and secrets. Your confidential workloads then attest to Trustee when they boot and, only if their TEE evidence is trusted, receive their sealed secrets.',
               )}
             </Content>
-            <ProgressStepper
-              aria-label={t('Trustee deployment flow')}
-              isCenterAligned
+            <Content component="p" className="trustee-openshift-console-plugin__mt">
+              {t('Requirements')}
+            </Content>
+            <Content component="ul">
+              <Content component="li">
+                {t(
+                  'Run Trustee on a trusted cluster, kept separate from the confidential workloads it attests. Those workloads can be co-located on this cluster for dev/test, or remote “spoke” clusters in production.',
+                )}
+              </Content>
+              <Content component="li">{t('cluster-admin on this cluster.')}</Content>
+              <Content component="li">
+                {t(
+                  'The Red Hat build of Trustee operator must be installed — you are seeing this page, so it is.',
+                )}
+              </Content>
+              <Content component="li">
+                {t(
+                  'For production, plan a Restricted profile with an HTTPS TLS secret (you can generate one below).',
+                )}
+              </Content>
+            </Content>
+            <ExpandableSection
+              toggleText={t('External prerequisites to gather first')}
               className="trustee-openshift-console-plugin__mt"
             >
-              <ProgressStep
-                variant={stepVariant(0)}
-                isCurrent={currentStep === 0}
-                id="tc-flow-create"
-                titleId="tc-flow-create-title"
-                description={tcCreated ? t('Created') : t('This form')}
-              >
-                {t('Create TrusteeConfig')}
-              </ProgressStep>
-              <ProgressStep
-                variant={stepVariant(1)}
-                isCurrent={currentStep === 1}
-                id="tc-flow-kbs"
-                titleId="tc-flow-kbs-title"
-                description={t('KBS, policies, secrets')}
-              >
-                {t('Operator deploys KBS')}
-              </ProgressStep>
-              <ProgressStep
-                variant={stepVariant(2)}
-                isCurrent={currentStep === 2}
-                id="tc-flow-policy"
-                titleId="tc-flow-policy-title"
-                description={t('Expected TEE measurements')}
-              >
-                {t('Set reference values')}
-              </ProgressStep>
-              <ProgressStep
-                variant={stepVariant(3)}
-                isCurrent={currentStep === 3}
-                id="tc-flow-attest"
-                titleId="tc-flow-attest-title"
-                description={t('kata-cc pods on boot')}
-              >
-                {t('Workloads attest & get secrets')}
-              </ProgressStep>
-            </ProgressStepper>
+              <Content component="p" className="trustee-openshift-console-plugin__muted">
+                {t('Some attestation inputs are produced outside the cluster:')}
+              </Content>
+              <Content component="ul">
+                <Content component="li">
+                  {t(
+                    'Restricted profile — generate an HTTPS TLS cert + key (for example with openssl) and load it as the TLS secret below.',
+                  )}
+                </Content>
+                <Content component="li">
+                  {t(
+                    'Reference values — run the veritas tool from the coco-tools image to produce RVPS reference values, then import them on the Reference values tab (the tab can also run veritas in-cluster for you).',
+                  )}
+                </Content>
+                <Content component="li">
+                  {t(
+                    'Image-signature keys — produce signing keys with Red Hat Trusted Artifact Signer and add them on the Delivered secrets tab.',
+                  )}
+                </Content>
+                <Content component="li">
+                  {t(
+                    'NVIDIA GPU attestation — requires an NRAS licensing agreement and outbound HTTPS to ',
+                  )}
+                  <a
+                    href="https://nras.attestation.nvidia.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    nras.attestation.nvidia.com
+                  </a>
+                  .
+                </Content>
+                <Content component="li">
+                  {t('Intel TDX (on the workload cluster) — retrieve a PCCS API key from the ')}
+                  <a
+                    href="https://api.portal.trustedservices.intel.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {t('Intel Trusted Services API portal')}
+                  </a>
+                  .
+                </Content>
+              </Content>
+            </ExpandableSection>
           </CardBody>
         </Card>
 
-        {tcCreated && (
-          <Card className="trustee-openshift-console-plugin__mb">
-            <CardTitle>{t('Readiness')}</CardTitle>
-            <CardBody>
+        {/* Guided, ordered setup checklist with live status + deep-links. */}
+        <Card className="trustee-openshift-console-plugin__mb">
+          <CardTitle>{t('Setup checklist')}</CardTitle>
+          <CardBody>
+            <Content component="p" className="trustee-openshift-console-plugin__muted">
+              {t(
+                'Complete these in order. Every required step must be done before any workload can attest; optional steps add capabilities.',
+              )}
+            </Content>
+            {!tcCreated && (
               <Content
                 component="p"
                 className="trustee-openshift-console-plugin__muted trustee-openshift-console-plugin__mb"
               >
-                {t(
-                  'What this Trustee needs before confidential workloads can attest and receive secrets.',
-                )}
+                {t('Per-step configuration links unlock once you create the TrusteeConfig below.')}
               </Content>
-              {readinessChecks.map((c) => (
+            )}
+            {steps.map((step, i) => {
+              const meta = META[step.id];
+              const detail = detailFor(step.id);
+              const action = actionFor(step);
+              return (
                 <Flex
-                  key={c.id}
-                  gap={{ default: 'gapSm' }}
+                  key={step.id}
+                  gap={{ default: 'gapMd' }}
                   alignItems={{ default: 'alignItemsFlexStart' }}
-                  className="trustee-openshift-console-plugin__mb"
+                  className="trustee-openshift-console-plugin__step-row"
                 >
                   <FlexItem>
-                    <ReadinessIcon state={c.state} />
+                    <StepIndicator state={step.state} n={i + 1} />
                   </FlexItem>
-                  <FlexItem>
-                    <div>{c.label}</div>
-                    <div className="trustee-openshift-console-plugin__muted">{c.detail}</div>
+                  <FlexItem grow={{ default: 'grow' }}>
+                    <Flex
+                      gap={{ default: 'gapSm' }}
+                      alignItems={{ default: 'alignItemsCenter' }}
+                      flexWrap={{ default: 'wrap' }}
+                    >
+                      <FlexItem>
+                        <strong>{meta.title}</strong>
+                      </FlexItem>
+                      <FlexItem>
+                        <Label isCompact color={step.required ? 'blue' : 'grey'}>
+                          {step.required ? t('Required') : t('Optional')}
+                        </Label>
+                      </FlexItem>
+                    </Flex>
+                    <div className="trustee-openshift-console-plugin__muted">{meta.desc}</div>
+                    {detail && (
+                      <div className="trustee-openshift-console-plugin__step-detail">{detail}</div>
+                    )}
+                    {action && (
+                      <div className="trustee-openshift-console-plugin__mt-xs">{action}</div>
+                    )}
                   </FlexItem>
                 </Flex>
-              ))}
-            </CardBody>
-          </Card>
-        )}
-
-        <ExpandableSection
-          toggleText={t('Prerequisites & out-of-cluster steps')}
-          className="trustee-openshift-console-plugin__mb"
-        >
-          <Content component="p" className="trustee-openshift-console-plugin__muted">
-            {t('Some attestation setup happens outside the cluster:')}
-          </Content>
-          <Content component="ul">
-            <Content component="li">
-              {t(
-                'Restricted profile — generate an HTTPS TLS cert + key (for example with openssl) and load it as the TLS secret below.',
-              )}
-            </Content>
-            <Content component="li">
-              {t(
-                'Reference values — run the veritas tool from the coco-tools image to produce RVPS reference values, then import them on the Reference values tab.',
-              )}
-            </Content>
-            <Content component="li">
-              {t(
-                'Image-signature keys — produce signing keys with Red Hat Trusted Artifact Signer and add them on the Delivered secrets tab.',
-              )}
-            </Content>
-            <Content component="li">
-              {t(
-                'NVIDIA GPU attestation — requires an NRAS licensing agreement and outbound HTTPS to ',
-              )}
-              <a
-                href="https://nras.attestation.nvidia.com"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                nras.attestation.nvidia.com
-              </a>
-              .
-            </Content>
-            <Content component="li">
-              {t('Intel TDX (on the workload cluster) — retrieve a PCCS API key from the ')}
-              <a
-                href="https://api.portal.trustedservices.intel.com"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {t('Intel Trusted Services API portal')}
-              </a>
-              .
-            </Content>
-          </Content>
-        </ExpandableSection>
+              );
+            })}
+          </CardBody>
+        </Card>
 
         <Grid hasGutter>
           <GridItem md={6}>
