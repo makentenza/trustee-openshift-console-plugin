@@ -96,6 +96,40 @@ const TrusteeGpuTab: FC<TrusteeTabProps> = ({ obj }) => {
               </DescriptionListGroup>
             </DescriptionList>
           )}
+          {settled && !hasNvidia && (
+            <Alert
+              variant="info"
+              isInline
+              title={t('GPU attestation is not configured')}
+              className="trustee-openshift-console-plugin__mt"
+            >
+              <Content component="p">{t('To enable confidential GPU attestation:')}</Content>
+              <Content component="ol">
+                <Content component="li">
+                  {t('Add the GPU attestation policy on the ')}
+                  {name ? (
+                    <Link to={`/k8s/ns/${namespace}/${TrusteeConfigModelRef}/${name}/policies`}>
+                      {t('Policies tab')}
+                    </Link>
+                  ) : (
+                    t('Policies tab')
+                  )}
+                  {t('.')}
+                </Content>
+                <Content component="li">
+                  {t(
+                    'Configure the NVIDIA remote verifier (NRAS) in the KBS config — requires an NRAS license and egress to nras.attestation.nvidia.com.',
+                  )}
+                </Content>
+                <Content component="li">
+                  {t('For confidential GPUs on Intel TDX hosts, provide a PCCS API key.')}
+                </Content>
+                <Content component="li">
+                  {t('Confirm NRAS connectivity using the test below.')}
+                </Content>
+              </Content>
+            </Alert>
+          )}
         </CardBody>
       </Card>
 
