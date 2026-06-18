@@ -93,6 +93,36 @@
   color: var(--pf-t--global--icon--color--status--danger--default);
 }
 
+/* ---- Guided setup checklist ---- */
+.trustee-openshift-console-plugin__step-row {
+  padding-block: var(--pf-t--global--spacer--sm, 0.5rem);
+  border-block-end: 1px solid var(--pf-t--global--border--color--default);
+}
+
+.trustee-openshift-console-plugin__step-row:last-child {
+  border-block-end: 0;
+}
+
+.trustee-openshift-console-plugin__step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  border-radius: 50%;
+  border: 1px solid var(--pf-t--global--border--color--default);
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+}
+
+.trustee-openshift-console-plugin__step-detail {
+  font-size: var(--pf-t--global--font--size--sm, 0.875rem);
+}
+
+.trustee-openshift-console-plugin__mt-xs {
+  margin-block-start: var(--pf-t--global--spacer--xs, 0.25rem);
+}
+
 .trustee-openshift-console-plugin__activity {
   max-block-size: 60vh;
   overflow: auto;
