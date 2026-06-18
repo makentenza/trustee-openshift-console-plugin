@@ -173,7 +173,7 @@ const DeployTrusteeWizard: FC = () => {
     'reference-values': {
       title: t('Register reference values'),
       desc: t(
-        'The expected TEE measurements that evidence is checked against. Trustee denies attestation until reference values exist.',
+        'The expected TEE measurements that evidence is checked against — generate them for your workload’s TEE (Intel TDX or AMD SEV-SNP, plus NVIDIA GPU if used). Trustee denies attestation until reference values exist.',
       ),
       action: t('Configure reference values'),
     },
@@ -186,7 +186,9 @@ const DeployTrusteeWizard: FC = () => {
     },
     secrets: {
       title: t('Add delivered secrets'),
-      desc: t('The sealed secrets the KBS releases to a workload after it attests successfully.'),
+      desc: t(
+        'The sealed secrets the KBS releases to a workload after it attests successfully. For image-signature verification, add the signing public key and its matching policy together.',
+      ),
       action: t('Open delivered secrets'),
     },
     gpu: {
@@ -421,6 +423,21 @@ const DeployTrusteeWizard: FC = () => {
               <Content component="li">
                 {t(
                   'For production, plan a Restricted profile with an HTTPS TLS secret (you can generate one below).',
+                )}
+              </Content>
+            </Content>
+            <Content component="p" className="trustee-openshift-console-plugin__mt">
+              {t('Where will the confidential workloads run?')}
+            </Content>
+            <Content component="ul">
+              <Content component="li">
+                {t(
+                  'Same cluster as Trustee (co-located) — keep the KBS service type ClusterIP; no Route is needed. Good for dev/test or a single-cluster setup.',
+                )}
+              </Content>
+              <Content component="li">
+                {t(
+                  'Separate clusters (hub-and-spoke) — set the KBS service type to NodePort or LoadBalancer and expose the KBS through a Route, so remote “spoke” workloads can reach it. This drives the KBS service type field and the hub-and-spoke step below.',
                 )}
               </Content>
             </Content>
