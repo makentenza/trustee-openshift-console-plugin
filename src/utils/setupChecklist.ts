@@ -27,6 +27,7 @@ export type SetupStepId =
   | 'trusteeconfig'
   | 'kbs'
   | 'reference-values'
+  | 'initdata'
   | 'policies'
   | 'secrets'
   | 'gpu'
@@ -54,6 +55,8 @@ export interface SetupInputs {
   kbsReady: boolean;
   /** RVPS reference values are registered and non-empty. */
   refValuesSet: boolean;
+  /** The initdata measurement (init_data / PCR8) is registered in RVPS reference values. */
+  initdataRegistered: boolean;
   /** An external Route to the KBS Service has been admitted (hub-and-spoke). */
   routeAdmitted: boolean;
 }
@@ -74,6 +77,15 @@ export const buildSetupSteps = (i: SetupInputs): SetupStep[] => {
       required: true,
       state: !started ? 'todo' : i.refValuesSet ? 'ok' : 'attention',
       tab: 'reference-values',
+    },
+    // Initdata carries the KBS endpoint + Kata Agent policy into each confidential pod
+    // and is measured into PCR8; its measurement must be registered as a reference value
+    // (init_data) or workloads can't attest to this KBS with a custom config.
+    {
+      id: 'initdata',
+      required: true,
+      state: !started ? 'todo' : i.initdataRegistered ? 'ok' : 'todo',
+      tab: 'initdata',
     },
     { id: 'policies', required: false, state: 'todo', tab: 'policies' },
     { id: 'secrets', required: false, state: 'todo', tab: 'secrets' },
