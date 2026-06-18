@@ -12,6 +12,8 @@ import {
   Alert,
   Button,
   Checkbox,
+  ClipboardCopy,
+  Content,
   Form,
   FormGroup,
   FormHelperText,
@@ -35,10 +37,12 @@ import {
   JobModel,
   RoleBindingModel,
   RoleModel,
+  SecretGVK,
   SecretModel,
   ServiceAccountModel,
 } from '../k8s/resources';
 import type { ConfigMapKind, JobKind, SecretKind } from '../k8s/types';
+import { jobFailed, jobFailureMessage } from '../utils/job';
 import './trustee.css';
 
 interface Props {
@@ -133,6 +137,19 @@ const GenerateReferenceValuesModal: FC<Props> = ({
   const P = `${trusteeConfigName}-rvps-gen`;
   const rvpsConfigMap = `${trusteeConfigName}-rvps-reference-values`;
 
+  // Pre-check: the Job mounts a copy of the cluster pull secret to pull the OCP
+  // release image. On RBAC-restricted clusters that secret isn't readable and the
+  // Job fails with the reason buried in its logs — so we probe readability now and
+  // warn up front, with a guided "copy the pull secret" remedy.
+  const [pullSecret, pullSecretLoaded, pullSecretError] = useK8sWatchResource<SecretKind>({
+    groupVersionKind: SecretGVK,
+    name: CLUSTER_PULL_SECRET.name,
+    namespace: CLUSTER_PULL_SECRET.namespace,
+  }) as [SecretKind | undefined, boolean, unknown];
+  // Unreadable when the watch errored (RBAC/forbidden) or resolved with no object.
+  const pullSecretUnreadable =
+    !!pullSecretError || (pullSecretLoaded && !pullSecret?.metadata?.name);
+
   // Once a Job has been created, watch it for progress. Disabled until `started`
   // so we don't 404-watch a Job that doesn't exist yet.
   const [job] = useK8sWatchResource<JobKind>(
@@ -147,11 +164,17 @@ const GenerateReferenceValuesModal: FC<Props> = ({
 
   const active = (job?.status?.active ?? 0) > 0;
   const succeeded = (job?.status?.succeeded ?? 0) > 0;
-  const failed =
-    (job?.status?.failed ?? 0) > 0 ||
-    (job?.status?.conditions ?? []).some((c) => c.type === 'Failed' && c.status === 'True');
+  const failed = jobFailed(job);
+  const failureDetail = jobFailureMessage(job);
 
   const valid = ocpVersion.trim() !== '';
+
+  // The pull secret is the usual culprit; copy it into this namespace by hand.
+  const copyPullSecretCmd = [
+    `oc get secret ${CLUSTER_PULL_SECRET.name} -n ${CLUSTER_PULL_SECRET.namespace} -o yaml \\`,
+    `  | sed 's/namespace: ${CLUSTER_PULL_SECRET.namespace}/namespace: ${namespace}/' \\`,
+    `  | oc create -f -`,
+  ].join('\n');
 
   const onGenerate = async () => {
     setBusy(true);
@@ -359,6 +382,29 @@ const GenerateReferenceValuesModal: FC<Props> = ({
             )}
           </Alert>
 
+          {pullSecretUnreadable && !started && (
+            <Alert
+              variant="warning"
+              isInline
+              title={t('Cluster pull secret is not readable')}
+              className="trustee-openshift-console-plugin__mb"
+            >
+              <Content component="p" className="trustee-openshift-console-plugin__mb">
+                {t(
+                  'veritas needs to read {{name}} in {{ns}} to pull the OpenShift release image, but it is not readable here (this usually needs cluster-admin). Copy it into {{target}} first, then generate:',
+                  {
+                    name: CLUSTER_PULL_SECRET.name,
+                    ns: CLUSTER_PULL_SECRET.namespace,
+                    target: namespace,
+                  },
+                )}
+              </Content>
+              <ClipboardCopy isReadOnly isCode hoverTip={t('Copy')} clickTip={t('Copied')}>
+                {copyPullSecretCmd}
+              </ClipboardCopy>
+            </Alert>
+          )}
+
           <FormGroup label={t('OpenShift version')} isRequired fieldId="rvgen-ocp">
             <TextInput
               id="rvgen-ocp"
@@ -468,9 +514,26 @@ const GenerateReferenceValuesModal: FC<Props> = ({
               )}
               {failed && (
                 <Alert variant="danger" isInline title={t('Generation failed')}>
+                  {failureDetail ? (
+                    <Content component="p" className="trustee-openshift-console-plugin__mb">
+                      {failureDetail}
+                    </Content>
+                  ) : null}
                   {t(
                     'The veritas Job failed. Open the Job to view its pod logs — common causes are an invalid initdata.toml, an unreachable OpenShift release image, or a pull-secret problem.',
                   )}
+                  <Content
+                    component="p"
+                    className="trustee-openshift-console-plugin__mt trustee-openshift-console-plugin__mb"
+                  >
+                    {t(
+                      'If the pod logs show a pull-secret / unauthorized error, copy the cluster pull secret into {{ns}} and retry:',
+                      { ns: namespace },
+                    )}
+                  </Content>
+                  <ClipboardCopy isReadOnly isCode hoverTip={t('Copy')} clickTip={t('Copied')}>
+                    {copyPullSecretCmd}
+                  </ClipboardCopy>
                 </Alert>
               )}
               {!active && !succeeded && !failed && (

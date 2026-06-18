@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useK8sWatchResource } from '@openshift-console/dynamic-plugin-sdk';
@@ -17,7 +17,9 @@ import {
 } from '@patternfly/react-core';
 import ConfigMapEditor from '../shared/ConfigMapEditor';
 import GenerateReferenceValuesModal from '../GenerateReferenceValuesModal';
-import { ClusterVersionGVK } from '../../k8s/resources';
+import { ClusterVersionGVK, NodeGVK } from '../../k8s/resources';
+import type { NodeKind } from '../../k8s/types';
+import { detectClusterTee } from '../../utils/topology';
 import type { TrusteeTabProps } from './types';
 import '../trustee.css';
 
@@ -31,10 +33,18 @@ type ClusterVersionKind = K8sResourceCommon & {
 /** Edit the RVPS reference values (expected measurements, incl. the initdata PCR8). */
 const TrusteeReferenceValuesTab: FC<TrusteeTabProps> = ({ obj }) => {
   const { t } = useTranslation('plugin__trustee-openshift-console-plugin');
-  const [tee, setTee] = useState<Tee>('tdx');
+  const [teeOverride, setTeeOverride] = useState<Tee | undefined>();
   const [modalOpen, setModalOpen] = useState(false);
   const name = obj?.metadata?.name;
   const namespace = obj?.metadata?.namespace ?? '';
+
+  // Auto-detect the TEE platform from node NFD labels so the generator targets the
+  // right hardware without a manual pick (a wrong choice makes evidence never
+  // match, with no error). The user can still override via the selector; we derive
+  // the effective value rather than syncing detection into state in an effect.
+  const [nodes] = useK8sWatchResource<NodeKind[]>({ groupVersionKind: NodeGVK, isList: true });
+  const detectedTee = useMemo(() => detectClusterTee(nodes ?? []), [nodes]);
+  const tee: Tee = teeOverride ?? detectedTee ?? 'tdx';
 
   // Auto-fill the OCP version veritas should target from the cluster's own version.
   const [clusterVersion] = useK8sWatchResource<ClusterVersionKind>({
@@ -92,7 +102,7 @@ const TrusteeReferenceValuesTab: FC<TrusteeTabProps> = ({ obj }) => {
               value={tee}
               aria-label={t('TEE platform')}
               onChange={(_e, v) => {
-                setTee(v as Tee);
+                setTeeOverride(v as Tee);
               }}
             >
               <FormSelectOption value="tdx" label={t('Intel TDX')} />
@@ -110,6 +120,18 @@ const TrusteeReferenceValuesTab: FC<TrusteeTabProps> = ({ obj }) => {
             </Button>
           </FlexItem>
         </Flex>
+        <Content component="p" className="trustee-openshift-console-plugin__muted">
+          {detectedTee
+            ? t(
+                'Detected {{tee}} on this cluster’s nodes (from NFD labels) — pre-selected above.',
+                {
+                  tee: detectedTee === 'tdx' ? t('Intel TDX') : t('AMD SEV-SNP'),
+                },
+              )
+            : t(
+                'No TEE node label (Intel TDX / AMD SEV-SNP) detected on this cluster’s nodes — pick your workload cluster’s platform above.',
+              )}
+        </Content>
         <ExpandableSection toggleText={t('Manual / advanced (run veritas yourself)')}>
           <Content component="p" className="trustee-openshift-console-plugin__mb">
             {t(

@@ -6,6 +6,7 @@ import {
   DocumentTitle,
   ListPageHeader,
   ResourceLink,
+  useFlag,
   useK8sWatchResource,
 } from '@openshift-console/dynamic-plugin-sdk';
 import {
@@ -42,6 +43,7 @@ import {
 import { useKbsConfigs, useTrusteeConfigs, useTrusteeDefaultProject } from '../k8s/hooks';
 import {
   ConfigMapGVK,
+  EVIDENCE_LABEL,
   EventGVK,
   NodeGVK,
   PodGVK,
@@ -66,9 +68,11 @@ import {
   type Verdict,
 } from '../utils/attestation';
 import { teeShort } from '../utils/topology';
+import { COCO_KATACONFIG_FLAG, cocoRoutesPresent } from '../utils/crossPlugin';
 import {
   decodeJwt,
   evidenceKey,
+  isEvidenceSchemaSupported,
   parseEvidence,
   relativeTime,
   type EvidenceRecord,
@@ -129,7 +133,8 @@ const ProbeDetail: FC<{
   ctx: AttestContext;
   links: { referenceValues: string; health: string };
   evidence?: EvidenceRecord;
-}> = ({ w, ctx, links, evidence }) => {
+  cocoPresent: boolean;
+}> = ({ w, ctx, links, evidence, cocoPresent }) => {
   const { t } = useTranslation('plugin__trustee-openshift-console-plugin');
   const [events] = useK8sWatchResource<EventKind[]>({
     groupVersionKind: EventGVK,
@@ -224,12 +229,26 @@ const ProbeDetail: FC<{
           </Content>
           {rems
             .filter((r) => !r.cdhCommand)
-            .map((r, i) => (
-              <div key={i} className={`${PREFIX}__mb`}>
-                <div>{r.text}</div>
-                {r.href ? <Link to={r.href}>{t('Open')}</Link> : null}
-              </div>
-            ))}
+            .map((r, i) => {
+              // A cross-plugin link (into /confidential-containers/*) only resolves
+              // when the CoCo plugin is installed. On a Trustee-only hub cluster,
+              // degrade it to plain guidance text so we never offer a 404 link.
+              const href = r.crossPlugin && !cocoPresent ? undefined : r.href;
+              return (
+                <div key={i} className={`${PREFIX}__mb`}>
+                  <div>{r.text}</div>
+                  {href ? (
+                    <Link to={href}>{t('Open')}</Link>
+                  ) : r.crossPlugin ? (
+                    <span className={`${PREFIX}__muted`}>
+                      {t(
+                        'Do this from the Confidential Containers plugin on the workload cluster.',
+                      )}
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })}
           <Alert
             variant="info"
             isInline
@@ -252,6 +271,9 @@ const ProbeDetail: FC<{
 const TrusteeAttestation: FC = () => {
   const { t } = useTranslation('plugin__trustee-openshift-console-plugin');
   useTrusteeDefaultProject();
+  // Best-effort: is the separate CoCo plugin installed (so its remediation routes
+  // resolve)? Absent on a Trustee-only hub cluster ⇒ render those links as text.
+  const cocoPresent = cocoRoutesPresent(useFlag(COCO_KATACONFIG_FLAG));
 
   const [trusteeConfigs, tcLoaded] = useTrusteeConfigs();
   const [kbsConfigs] = useKbsConfigs();
@@ -291,12 +313,15 @@ const TrusteeAttestation: FC = () => {
   const [evidenceCms] = useK8sWatchResource<ConfigMapKind[]>({
     groupVersionKind: ConfigMapGVK,
     isList: true,
-    selector: { matchLabels: { 'trustee.attestation/evidence': 'true' } },
+    selector: { matchLabels: { [EVIDENCE_LABEL]: 'true' } },
   });
   const evidenceByKey = useMemo(() => {
     const m = new Map<string, EvidenceRecord>();
     (evidenceCms ?? []).forEach((cm) => {
       const rec = parseEvidence(cm.data?.['evidence.json']);
+      // Tolerate a missing/older schema (treated as v1); skip a NEWER one this
+      // reader can't parse rather than misrender it (operator skew guard).
+      if (!isEvidenceSchemaSupported(rec)) return;
       const key = evidenceKey(rec);
       if (rec && key && (rec.timestamp ?? '') >= (m.get(key)?.timestamp ?? '')) m.set(key, rec);
     });
@@ -520,7 +545,15 @@ const TrusteeAttestation: FC = () => {
                         aria-label={t('Attestation probe for {{name}}', { name: w.name })}
                         isHidden={!open}
                       >
-                        {open && <ProbeDetail w={w} ctx={ctx} links={tabLinks} evidence={ev} />}
+                        {open && (
+                          <ProbeDetail
+                            w={w}
+                            ctx={ctx}
+                            links={tabLinks}
+                            evidence={ev}
+                            cocoPresent={cocoPresent}
+                          />
+                        )}
                       </DataListContent>
                     </DataListItem>
                   );

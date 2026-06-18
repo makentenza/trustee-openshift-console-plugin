@@ -42,6 +42,8 @@ import {
   RVPS_REFERENCE_VALUES_KEY,
   RVPS_REFERENCE_VALUES_SUFFIX,
   RouteGVK,
+  RouteModel,
+  SHARED_CONFIGMAP_SCHEMA_VERSION,
   SHARED_INITDATA_CM_SUFFIX,
   SHARED_INITDATA_LABEL,
   SecretGVK,
@@ -54,6 +56,7 @@ import {
   type InitdataResult,
   type SensitiveRequest,
 } from '../../utils/initdata';
+import { buildKbsPassthroughRoute, isEdgeRoute, isInClusterKbsUrl } from '../../utils/kbsUrl';
 import type { TrusteeTabProps } from './types';
 import '../trustee.css';
 
@@ -92,7 +95,7 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
     [routes],
   );
   const externalUrl = kbsRoute?.spec?.host ? `https://${kbsRoute.spec.host}` : undefined;
-  const routeIsEdge = kbsRoute?.spec?.tls?.termination === 'edge';
+  const routeIsEdge = isEdgeRoute(kbsRoute);
   // In-cluster KBS endpoint is HTTP: the trustee-operator's KBS serves plain HTTP by default
   // (insecure_http=true), and the in-guest CDH (rustls) rejects the operator's self-signed
   // HTTPS cert outright (no hostname/CA leeway), so HTTPS to the in-cluster Service does not
@@ -115,9 +118,21 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
   }, [httpsSecret]);
 
   // --- form state ---
+  // This tab AUTHORS initdata to share with a workload owner — commonly on a
+  // different cluster (hub-and-spoke). So when an external Route exists we prefer
+  // it by default (a spoke can't reach the in-cluster Service URL). `modeTouched`
+  // lets the user override; until then the effective mode is derived, not stored,
+  // so it tracks the async-loaded Route without a state-sync effect.
   const [mode, setMode] = useState<'incluster' | 'external'>('incluster');
+  const [modeTouched, setModeTouched] = useState(false);
+  const effectiveMode: 'incluster' | 'external' = modeTouched
+    ? mode
+    : externalUrl
+      ? 'external'
+      : 'incluster';
   const [trusteeUrl, setTrusteeUrl] = useState('');
   const [urlTouched, setUrlTouched] = useState(false);
+  const sharingInClusterUrl = isInClusterKbsUrl(trusteeUrl);
   const [algorithm, setAlgorithm] = useState<HashAlgo>('sha256');
   const [kbsCert, setKbsCert] = useState('');
   const [certTouched, setCertTouched] = useState(false);
@@ -127,12 +142,14 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
   const [error, setError] = useState('');
   const [rvStatus, setRvStatus] = useState('');
   const [shareStatus, setShareStatus] = useState('');
+  const [routeStatus, setRouteStatus] = useState('');
 
-  // Default the URL from the chosen endpoint, until the user edits it.
+  // Default the URL from the effective endpoint, until the user edits it.
   useEffect(() => {
     if (urlTouched) return;
-    setTrusteeUrl(mode === 'external' ? (externalUrl ?? '') : inClusterUrl);
-  }, [mode, externalUrl, inClusterUrl, urlTouched]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTrusteeUrl(effectiveMode === 'external' ? (externalUrl ?? '') : inClusterUrl);
+  }, [effectiveMode, externalUrl, inClusterUrl, urlTouched]);
 
   // Pre-fill the cert from the HTTPS secret, until the user edits it.
   useEffect(() => {
@@ -168,17 +185,61 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
     }
   };
 
+  // Create a passthrough Route to the KBS so a spoke can reach it (hub-and-spoke).
+  // CDH rejects an edge-terminated Route's cluster ingress cert, so we always make
+  // it passthrough.
+  const createRoute = async () => {
+    if (!name) return;
+    setRouteStatus('');
+    try {
+      await k8sCreate({
+        model: RouteModel,
+        data: buildKbsPassthroughRoute(name, namespace),
+      });
+      setRouteStatus('ok');
+    } catch (e) {
+      setRouteStatus(`error:${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   const rvCmName = name ? `${name}${RVPS_REFERENCE_VALUES_SUFFIX}` : '';
 
   const addToReferenceValues = async () => {
     if (!result || !name) return;
     setRvStatus('');
+    const entry = {
+      name: INITDATA_REFERENCE_VALUE_NAME,
+      expiration: '2099-12-31T00:00:00Z',
+      value: [result.pcr8],
+    };
     try {
-      const cm = await k8sGet<ConfigMapKind>({
-        model: ConfigMapModel,
-        name: rvCmName,
-        ns: namespace,
-      });
+      let cm: ConfigMapKind | undefined;
+      try {
+        cm = await k8sGet<ConfigMapKind>({
+          model: ConfigMapModel,
+          name: rvCmName,
+          ns: namespace,
+        });
+      } catch (e) {
+        // The operator normally creates this RVPS ConfigMap when the TrusteeConfig
+        // reconciles, but on a fresh deployment it may not exist yet. Rather than
+        // fail silently, create it with just this initdata's PCR8 so attestation
+        // can accept the workload now; reference values can be regenerated later.
+        if (!isNotFound(e)) throw e;
+      }
+
+      if (!cm) {
+        const fresh: ConfigMapKind = {
+          apiVersion: 'v1',
+          kind: 'ConfigMap',
+          metadata: { name: rvCmName, namespace },
+          data: { [RVPS_REFERENCE_VALUES_KEY]: JSON.stringify([entry], null, 2) },
+        };
+        await k8sCreate({ model: ConfigMapModel, data: fresh });
+        setRvStatus('created');
+        return;
+      }
+
       let arr: { name?: string; expiration?: string; value?: string[] }[] = [];
       try {
         const parsed = JSON.parse(cm.data?.[RVPS_REFERENCE_VALUES_KEY] ?? '[]');
@@ -186,20 +247,16 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
       } catch {
         arr = [];
       }
-      const entry = {
-        name: INITDATA_REFERENCE_VALUE_NAME,
-        expiration: '2099-12-31T00:00:00Z',
-        value: [result.pcr8],
-      };
       const idx = arr.findIndex((e) => e?.name === INITDATA_REFERENCE_VALUE_NAME);
       if (idx >= 0) arr[idx] = entry;
       else arr.push(entry);
+      // `add` (not `replace`) so it works whether or not the key already exists.
       await k8sPatch({
         model: ConfigMapModel,
         resource: cm,
         data: [
           {
-            op: 'replace',
+            op: 'add',
             path: '/data/reference-values.json',
             value: JSON.stringify(arr, null, 2),
           },
@@ -220,6 +277,9 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
       kind: 'ConfigMap',
       metadata: { name: cmName, namespace, labels: { [SHARED_INITDATA_LABEL]: 'true' } },
       data: {
+        // Stamp the cross-plugin contract version so a reader (the CoCo plugin)
+        // can detect operator skew instead of misparsing. See AGENTS.md.
+        schema: SHARED_CONFIGMAP_SCHEMA_VERSION,
         cc_init_data: result.annotation,
         'kbs-url': trusteeUrl.trim(),
         pcr8: result.pcr8,
@@ -300,33 +360,95 @@ spec:
                 <FormGroup label={t('Where the workload runs')} fieldId="id-endpoint">
                   <FormSelect
                     id="id-endpoint"
-                    value={mode}
+                    value={effectiveMode}
                     onChange={(_e, v) => {
                       setMode(v as 'incluster' | 'external');
+                      setModeTouched(true);
                       setUrlTouched(false);
                     }}
                   >
-                    <FormSelectOption value="incluster" label={t('This cluster (co-located)')} />
                     <FormSelectOption
                       value="external"
-                      label={t('A different cluster (hub-and-spoke)')}
+                      label={
+                        externalUrl
+                          ? t('A different cluster (hub-and-spoke) — recommended for sharing')
+                          : t('A different cluster (hub-and-spoke)')
+                      }
                       isDisabled={!externalUrl}
                     />
+                    <FormSelectOption value="incluster" label={t('This cluster (co-located)')} />
                   </FormSelect>
                   <FormHelperText>
                     <HelperText>
                       <HelperTextItem>
-                        {mode === 'external' && !externalUrl
+                        {effectiveMode === 'external' && !externalUrl
                           ? t(
                               'No external Route to kbs-service found. Create a Route to expose this Trustee, or pick “This cluster”.',
                             )
                           : t(
-                              'Picks the KBS URL baked into the initdata: the in-cluster Service, or the external Route reachable from another cluster.',
+                              'Picks the KBS URL baked into the initdata. Sharing initdata for a workload on another cluster? Use the external Route — the in-cluster Service URL is unreachable from a spoke.',
                             )}
                       </HelperTextItem>
                     </HelperText>
                   </FormHelperText>
                 </FormGroup>
+
+                {sharingInClusterUrl && (
+                  <Alert
+                    variant="warning"
+                    isInline
+                    isPlain
+                    title={t('In-cluster KBS URL — only reachable from this cluster')}
+                    className={`${PREFIX}__mb`}
+                  >
+                    {externalUrl
+                      ? t(
+                          'This URL is the in-cluster Service. A confidential workload on another cluster (hub-and-spoke) cannot reach it and will fail to attest. Switch to the external Route ({{route}}) unless the workload runs on this cluster.',
+                          { route: externalUrl },
+                        )
+                      : t(
+                          'This URL is the in-cluster Service, reachable only from this cluster. If the workload runs on another cluster, create an external Route to kbs-service and use it instead — otherwise the workload cannot reach the KBS to attest.',
+                        )}
+                  </Alert>
+                )}
+
+                {routeIsEdge && (
+                  <Alert
+                    variant="warning"
+                    isInline
+                    title={t('KBS Route uses edge TLS — a spoke cannot attest through it')}
+                    className={`${PREFIX}__mb`}
+                  >
+                    {t(
+                      'The existing Route to kbs-service is edge-terminated, presenting the cluster ingress certificate. The in-guest Confidential Data Hub (CDH) rejects it, so a remote workload cannot attest. Recreate the Route as passthrough (delete the edge Route, then use “Create passthrough Route”).',
+                    )}
+                  </Alert>
+                )}
+
+                {!externalUrl && (
+                  <div className={`${PREFIX}__mb`}>
+                    <Button variant="secondary" onClick={() => void createRoute()}>
+                      {t('Create passthrough Route')}
+                    </Button>{' '}
+                    {routeStatus === 'ok' && (
+                      <span className={`${PREFIX}__icon-success`}>
+                        {t('Route created — waiting for the router to assign a host…')}
+                      </span>
+                    )}
+                    {routeStatus.startsWith('error:') && (
+                      <span className={`${PREFIX}__icon-danger`}>{routeStatus.slice(6)}</span>
+                    )}
+                    <FormHelperText>
+                      <HelperText>
+                        <HelperTextItem>
+                          {t(
+                            'Expose this Trustee’s KBS to other clusters with a passthrough Route (the only TLS termination the in-guest CDH accepts). Needed for hub-and-spoke.',
+                          )}
+                        </HelperTextItem>
+                      </HelperText>
+                    </FormHelperText>
+                  </div>
+                )}
 
                 <FormGroup label={t('Trustee (KBS) URL')} isRequired fieldId="id-url">
                   <TextInput
@@ -358,7 +480,7 @@ spec:
                           ? t('Auto-filled from the HTTPS secret {{secret}}.', {
                               secret: httpsSecretName,
                             })
-                          : mode === 'external' && routeIsEdge
+                          : effectiveMode === 'external' && routeIsEdge
                             ? t(
                                 'This Route uses edge TLS (cluster ingress cert). Paste it — e.g. openssl s_client -connect <host>:443 | openssl x509.',
                               )
@@ -445,6 +567,11 @@ spec:
                     {rvStatus === 'ok' && (
                       <span className={`${PREFIX}__icon-success`}>
                         {t('Registered in {{cm}}', { cm: rvCmName })}
+                      </span>
+                    )}
+                    {rvStatus === 'created' && (
+                      <span className={`${PREFIX}__icon-success`}>
+                        {t('Created {{cm}} and registered this PCR8', { cm: rvCmName })}
                       </span>
                     )}
                     {rvStatus.startsWith('error:') && (

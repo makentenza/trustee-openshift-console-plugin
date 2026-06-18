@@ -2,6 +2,7 @@ import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Gallery, PageSection } from '@patternfly/react-core';
 import ConfigMapEditor from '../shared/ConfigMapEditor';
+import { regoTemplatesForPolicy, validateRego } from '../../utils/rego';
 import type { TrusteeTabProps } from './types';
 
 /** Edit the Rego policies the operator generates from a TrusteeConfig. */
@@ -49,6 +50,8 @@ const TrusteePoliciesTab: FC<TrusteeTabProps> = ({ obj }) => {
             title={p.title}
             description={p.desc}
             preferredKey="policy.rego"
+            templates={regoTemplatesForPolicy(p.suffix)}
+            validate={validateRego}
           />
         ))}
       </Gallery>

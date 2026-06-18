@@ -11,6 +11,14 @@ observe the Red Hat build of Trustee** — the confidential containers attestati
 single `TrusteeConfig` the operator stands up the Key Broker Service (KBS) plus its attestation and
 resource policies, reference values, and the secrets it delivers to attested workloads.
 
+> **Two operators total — Trustee ships from its own.** This plugin is delivered by the **Trustee
+> operator** (separate). The **OSC operator** (`openshift/sandboxed-containers-operator`) ships the
+> *other two* plugins from a single operator: **Sandboxes** (`osc-openshift-console-plugin`) and, via
+> the `confidential:true` feature gate, **Confidential Containers**
+> (`coco-openshift-console-plugin`). So there is no "CoCo operator" — confidential containers and
+> attestation are decoupled at the operator level, which is why the attestation service can run on a
+> different cluster (hub-and-spoke).
+>
 > **Confidential containers live in a separate plugin.** Enabling the `kata-cc` runtime, labeling
 > TEE nodes, building `initdata`, and running confidential workloads is handled by
 > **[`coco-openshift-console-plugin`](https://github.com/makentenza/coco-openshift-console-plugin)**.
@@ -59,9 +67,9 @@ cluster.
 
 ## Stack
 
-Matches `coco-openshift-console-plugin` / `osc-openshift-console-plugin` (OCP **4.21**): React 17,
-PatternFly 6.2, `@openshift-console/dynamic-plugin-sdk` `4.21-latest`, `react-router-dom-v5-compat`,
-`ts-loader`, Yarn 4.14.1.
+Matches `coco-openshift-console-plugin` / `osc-openshift-console-plugin` (OCP **4.22**): React **18**,
+PatternFly 6.4, `@openshift-console/dynamic-plugin-sdk` `4.22-latest`, `react-router` v7 (import
+`Link`/`useNavigate`/`useParams` from `react-router`), `swc-loader`, Yarn 4.14.1.
 
 ## Develop
 
@@ -74,6 +82,7 @@ yarn start-console  # OpenShift console in a container (requires `oc login`)
 
 - `yarn lint` — eslint + stylelint (`--fix`)
 - `yarn build` — production bundle
+- `yarn test` — Jest unit tests for the pure helpers in `src/utils/*`
 - `yarn i18n` — regenerate `locales/en/plugin__trustee-openshift-console-plugin.json`
 
 ## Conventions
@@ -81,3 +90,19 @@ yarn start-console  # OpenShift console in a container (requires `oc login`)
 - i18n namespace `plugin__trustee-openshift-console-plugin`; CSS class prefix `trustee-openshift-console-plugin__`.
 - PatternFly `--pf-t--*` tokens only (no hex/named colors — dark-mode safe).
 - Functional components; hooks wrap `useK8sWatchResource`; types extend `K8sResourceCommon`.
+
+## Cross-plugin ConfigMap contracts
+
+Trustee and the OSC-shipped CoCo plugin update on **independent operator release trains** but exchange
+two ConfigMaps. Each carries a `schema` data field stamped with
+`SHARED_CONFIGMAP_SCHEMA_VERSION` (currently `"1"`, in `src/k8s/resources.ts`); readers tolerate a
+missing or older value (treat as `1`) and ignore a newer one they don't understand, so an operator
+skew degrades gracefully instead of misparsing.
+
+| ConfigMap | Label | Written by | Read by | Keys |
+| --- | --- | --- | --- | --- |
+| `<tc>-shared-initdata` | `trustee.attestation/shared-initdata=true` | **Trustee** (Initdata tab) | CoCo (same-cluster convenience) | `schema`, `cc_init_data`, `kbs-url`, `pcr8`, `README` |
+| `attestation-evidence-<pod>` | `trustee.attestation/evidence=true` | CoCo (evidence sidecar / probe) | **Trustee** (Attestation status) | `evidence.json` (`EvidenceRecord`, incl. `schema`) |
+
+These are conventions across two repos — keep the label strings and the schema constant in sync if you
+change either side.

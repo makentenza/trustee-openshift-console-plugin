@@ -99,6 +99,17 @@ export const RouteGVK: K8sGroupVersionKind = {
   kind: 'Route',
 };
 
+export const RouteModel: K8sModel = {
+  apiGroup: 'route.openshift.io',
+  apiVersion: 'v1',
+  kind: 'Route',
+  plural: 'routes',
+  namespaced: true,
+  abbr: 'RT',
+  label: 'Route',
+  labelPlural: 'Routes',
+};
+
 export const ConfigMapModel: K8sModel = {
   apiVersion: 'v1',
   kind: 'ConfigMap',
@@ -223,6 +234,24 @@ export const INITDATA_REFERENCE_VALUE_NAME = 'init_data';
 /** ConfigMap (<tc>-shared-initdata) + label for initdata shared with the workload owner. */
 export const SHARED_INITDATA_CM_SUFFIX = '-shared-initdata';
 export const SHARED_INITDATA_LABEL = 'trustee.attestation/shared-initdata';
+/** Label on the evidence ConfigMaps the CoCo sidecar writes and Trustee reads. */
+export const EVIDENCE_LABEL = 'trustee.attestation/evidence';
+/**
+ * Schema/version stamp written into both cross-plugin ConfigMaps (shared-initdata,
+ * evidence). The Trustee and OSC operators ship on independent release trains, so a
+ * version field lets each plugin detect skew instead of failing at parse time.
+ * Readers tolerate a missing or older value (treat as v1) — see AGENTS.md contracts.
+ */
+export const SHARED_CONFIGMAP_SCHEMA_VERSION = '1';
+
+// ---- Cross-plugin routes (the confidential-containers / CoCo plugin) ----
+// Routes the CoCo plugin (coco-openshift-console-plugin) actually registers. Used
+// for remediation deep-links. On a Trustee-only "hub" cluster the CoCo plugin is
+// absent, so these 404 — callers must degrade them to plain text in that case.
+/** CoCo's confidential-workload create form (where initdata is pasted). */
+export const COCO_CREATE_WORKLOAD_ROUTE = '/confidential-containers/workloads/new';
+/** CoCo's TEE-nodes page. */
+export const COCO_TEE_NODES_ROUTE = '/confidential-containers/tee-nodes';
 
 // `kind~group~version` reference string for tab/action/flag extensions.
 export const TrusteeConfigModelRef = `${TRUSTEE_GROUP}~${TRUSTEE_VERSION}~TrusteeConfig`;

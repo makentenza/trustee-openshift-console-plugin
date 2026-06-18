@@ -3,9 +3,15 @@
 // (the on-demand probe Job and the in-guest evidence sidecar) and the reader
 // (the Attestation status overview). Both write a `attestation-evidence-<pod>`
 // ConfigMap labelled trustee.attestation/evidence=true holding evidence.json.
+//
+// The producer (the CoCo plugin / sidecar) and this reader version independently
+// (two operators), so we tolerate a missing or older `schema` stamp on read and
+// only flag a NEWER one we don't understand. See AGENTS.md cross-plugin contracts.
 // ---------------------------------------------------------------------------
+import { SHARED_CONFIGMAP_SCHEMA_VERSION } from '../k8s/resources';
 
 export interface EvidenceRecord {
+  /** Cross-plugin contract version. Absent ⇒ pre-versioned ⇒ treated as "1". */
   schema?: string;
   /** "probe" (on-demand Job) or "sidecar" (continuous, in-guest). */
   source?: string;
@@ -43,6 +49,28 @@ export const parseEvidence = (raw?: string): EvidenceRecord | undefined => {
   } catch {
     return undefined;
   }
+};
+
+/** A record's effective schema version (missing/blank ⇒ "1", the pre-stamp baseline). */
+export const evidenceSchemaVersion = (e?: EvidenceRecord): string => {
+  const v = (e?.schema ?? '').trim();
+  return v === '' ? '1' : v;
+};
+
+/**
+ * Can this reader understand the record? We render any version up to and including
+ * the one we know (SHARED_CONFIGMAP_SCHEMA_VERSION); a NEWER major produced by a
+ * newer producer operator is flagged so the UI can warn instead of misreading.
+ * Non-numeric versions are treated as understood (best effort, never block).
+ */
+export const isEvidenceSchemaSupported = (
+  e?: EvidenceRecord,
+  knownVersion: string = SHARED_CONFIGMAP_SCHEMA_VERSION,
+): boolean => {
+  const got = Number.parseInt(evidenceSchemaVersion(e), 10);
+  const known = Number.parseInt(knownVersion, 10);
+  if (Number.isNaN(got) || Number.isNaN(known)) return true;
+  return got <= known;
 };
 
 /** `<namespace>/<name>` key used to match an evidence record to a workload. */

@@ -8,7 +8,12 @@
 // combine those into a verdict and concrete remediation, and still offer the
 // definitive in-guest CDH check as a copyable command.
 // ---------------------------------------------------------------------------
-import { CC_INIT_DATA_ANNOTATION, CDH_RESOURCE_PROBE_PORT } from '../k8s/resources';
+import {
+  CC_INIT_DATA_ANNOTATION,
+  CDH_RESOURCE_PROBE_PORT,
+  COCO_CREATE_WORKLOAD_ROUTE,
+  COCO_TEE_NODES_ROUTE,
+} from '../k8s/resources';
 import type { EventKind, NodeKind, PodKind, TeeType } from '../k8s/types';
 import { isConfidentialRuntimeName, teeLong, teeTypeForNode } from './topology';
 
@@ -49,6 +54,13 @@ export interface Remediation {
   href?: string;
   /** When true, the UI renders the in-guest CDH probe command instead of a link. */
   cdhCommand?: boolean;
+  /**
+   * When true, `href` points into the separate confidential-containers (CoCo)
+   * plugin (`/confidential-containers/*`). The UI must render it as plain text
+   * (not a link) on a Trustee-only "hub" cluster where CoCo is not installed,
+   * otherwise the link 404s. See utils/crossPlugin.ts.
+   */
+  crossPlugin?: boolean;
 }
 
 const allReady = (pod: PodKind): boolean => {
@@ -216,14 +228,20 @@ export const remediation = (
   const r: Remediation[] = [];
   if (!w.hasInitData) {
     r.push({
-      text: 'This pod has no initdata, so it never contacts Trustee. Rebuild it with initdata and redeploy.',
-      href: '/confidential-containers/initdata',
+      // Author initdata on this Trustee (the Initdata tab), then create the
+      // workload with it in the CoCo plugin. The old link to
+      // /confidential-containers/initdata 404'd — CoCo registers no such route;
+      // its create-workload form is where initdata is pasted.
+      text: 'This pod has no initdata, so it never contacts Trustee. Author initdata (Initdata tab), then rebuild the workload with it and redeploy.',
+      href: COCO_CREATE_WORKLOAD_ROUTE,
+      crossPlugin: true,
     });
   }
   if (w.nodeName && !w.onTeeNode) {
     r.push({
       text: 'The pod is on a node without a hardware TEE. Schedule it on an Intel TDX or AMD SEV-SNP node.',
-      href: '/confidential-containers/tee-nodes',
+      href: COCO_TEE_NODES_ROUTE,
+      crossPlugin: true,
     });
   }
   if (!ctx.kbsReady) {

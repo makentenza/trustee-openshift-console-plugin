@@ -26,6 +26,13 @@ interface Props {
   description?: string;
   /** Pin which data key to edit; otherwise the first key is used. */
   preferredKey?: string;
+  /** Optional starter templates: buttons that populate the editor. */
+  templates?: { id: string; label: string; value: string }[];
+  /**
+   * Optional content validator run before save (and live for the inline error).
+   * Returns an error message to block the patch, or undefined when valid.
+   */
+  validate?: (draft: string) => string | undefined;
 }
 
 /**
@@ -40,6 +47,8 @@ const ConfigMapEditor: FC<Props> = ({
   title,
   description,
   preferredKey,
+  templates,
+  validate,
 }) => {
   const { t } = useTranslation('plugin__trustee-openshift-console-plugin');
   const [configMap, loaded, loadError] = useK8sWatchResource<ConfigMapKind>({
@@ -76,8 +85,19 @@ const ConfigMapEditor: FC<Props> = ({
     setSyncToken(token);
   }
 
+  // Live validation error (when a validator is provided) — drives the inline
+  // message and disables Save so an invalid policy is never patched.
+  const validationError = validate && dirty ? validate(draft) : undefined;
+
   const onSave = async () => {
     if (!configMap) return;
+    if (validate) {
+      const err = validate(draft);
+      if (err) {
+        setSaveError(err);
+        return;
+      }
+    }
     setSaving(true);
     setSaveError('');
     try {
@@ -151,6 +171,32 @@ const ConfigMapEditor: FC<Props> = ({
                 ))}
               </FormSelect>
             )}
+            {templates && templates.length > 0 && (
+              <Flex
+                gap={{ default: 'gapSm' }}
+                alignItems={{ default: 'alignItemsCenter' }}
+                className="trustee-openshift-console-plugin__mb"
+              >
+                <FlexItem>
+                  <span className="trustee-openshift-console-plugin__muted">
+                    {t('Start from a template:')}
+                  </span>
+                </FlexItem>
+                {templates.map((tpl) => (
+                  <FlexItem key={tpl.id}>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setDraft(tpl.value);
+                        setDirty(true);
+                      }}
+                    >
+                      {tpl.label}
+                    </Button>
+                  </FlexItem>
+                ))}
+              </Flex>
+            )}
             <TextArea
               value={draft}
               onChange={(_e, value) => {
@@ -162,6 +208,15 @@ const ConfigMapEditor: FC<Props> = ({
               resizeOrientation="vertical"
               style={{ fontFamily: 'var(--pf-t--global--font--family--mono)' }}
             />
+            {validationError && (
+              <Alert
+                variant="warning"
+                isInline
+                isPlain
+                title={validationError}
+                className="trustee-openshift-console-plugin__mt"
+              />
+            )}
             {saveError && (
               <Alert
                 variant="danger"
@@ -177,7 +232,7 @@ const ConfigMapEditor: FC<Props> = ({
                 <Button
                   variant="primary"
                   onClick={() => void onSave()}
-                  isDisabled={!dirty || saving}
+                  isDisabled={!dirty || saving || Boolean(validationError)}
                   isLoading={saving}
                 >
                   {t('Save')}

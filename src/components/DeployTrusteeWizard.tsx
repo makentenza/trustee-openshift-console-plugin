@@ -16,6 +16,8 @@ import {
   CodeBlockCode,
   Content,
   ExpandableSection,
+  Flex,
+  FlexItem,
   Form,
   FormGroup,
   FormHelperText,
@@ -30,6 +32,7 @@ import {
   ProgressStepper,
   TextInput,
 } from '@patternfly/react-core';
+import { CheckCircleIcon, ExclamationTriangleIcon, InProgressIcon } from '@patternfly/react-icons';
 import type { K8sResourceCommon } from '@openshift-console/dynamic-plugin-sdk';
 import type { FC } from 'react';
 import { useState } from 'react';
@@ -40,18 +43,28 @@ import {
   ConfigMapGVK,
   DeploymentGVK,
   IngressConfigGVK,
+  RouteGVK,
   TRUSTEE_KBS_DEPLOYMENT,
   TRUSTEE_NAMESPACE,
   TrusteeConfigGVK,
   TrusteeConfigModel,
   TrusteeConfigModelRef,
 } from '../k8s/resources';
-import type { ConfigMapKind, DeploymentKind, TrusteeConfigKind } from '../k8s/types';
+import type { ConfigMapKind, DeploymentKind, RouteKind, TrusteeConfigKind } from '../k8s/types';
+import { buildReadiness } from '../utils/readiness';
 import GenerateTlsSecretModal from './GenerateTlsSecretModal';
 import './trustee.css';
 
 type ProfileType = 'Permissive' | 'Restricted';
 type ServiceType = 'ClusterIP' | 'NodePort' | 'LoadBalancer';
+
+const PREFIX = 'trustee-openshift-console-plugin';
+
+const ReadinessIcon: FC<{ state: 'ok' | 'warn' | 'pending' }> = ({ state }) => {
+  if (state === 'ok') return <CheckCircleIcon className={`${PREFIX}__icon-success`} />;
+  if (state === 'warn') return <ExclamationTriangleIcon className={`${PREFIX}__icon-warning`} />;
+  return <InProgressIcon className={`${PREFIX}__icon-info`} />;
+};
 
 const DeployTrusteeWizard: FC = () => {
   const { t } = useTranslation('plugin__trustee-openshift-console-plugin');
@@ -74,6 +87,13 @@ const DeployTrusteeWizard: FC = () => {
       : 'rvps-reference-values',
     namespace: tcNs,
   });
+  // The external KBS Route feeds the post-install readiness panel below — a
+  // workload on a spoke reaches the KBS through it.
+  const [routes] = useK8sWatchResource<RouteKind[]>({
+    groupVersionKind: RouteGVK,
+    namespace: tcNs,
+    isList: true,
+  });
   const tcCreated = existing.length > 0;
   const tcReady =
     !!tc &&
@@ -86,6 +106,27 @@ const DeployTrusteeWizard: FC = () => {
   const currentStep = stepDone.findIndex((d) => !d);
   const stepVariant = (i: number): 'success' | 'info' | 'pending' =>
     stepDone[i] ? 'success' : i === currentStep ? 'info' : 'pending';
+
+  // Post-install readiness: TrusteeConfig reconciled + KBS Route admitted + RVPS
+  // reference values present, each with a sub-status line.
+  const readinessChecks = buildReadiness(
+    { tc, routes: routes ?? [], rvpsCm },
+    {
+      tcReconciled: t('Reconciled and ready.'),
+      tcReconciling: t('Created — waiting for the operator to reconcile…'),
+      tcConditionPrefix: t('Not ready: '),
+      routeAdmitted: (host) =>
+        t('Reachable at {{host}} — usable by a spoke (hub-and-spoke).', { host }),
+      routePending: t('Route created — waiting to be admitted by the router…'),
+      routeMissing: t(
+        'No external Route to kbs-service. Fine for a co-located (same-cluster) workload; create a passthrough Route to attest from another cluster.',
+      ),
+      refvalsPresent: t('Registered — attestation can match evidence.'),
+      refvalsMissing: t(
+        'None registered yet. Trustee rejects attestation until reference values exist (Reference values tab).',
+      ),
+    },
+  );
 
   const [name, setName] = useState('trustee-config');
   const [namespace, setNamespace] = useState(TRUSTEE_NAMESPACE);
@@ -263,6 +304,38 @@ const DeployTrusteeWizard: FC = () => {
             </ProgressStepper>
           </CardBody>
         </Card>
+
+        {tcCreated && (
+          <Card className="trustee-openshift-console-plugin__mb">
+            <CardTitle>{t('Readiness')}</CardTitle>
+            <CardBody>
+              <Content
+                component="p"
+                className="trustee-openshift-console-plugin__muted trustee-openshift-console-plugin__mb"
+              >
+                {t(
+                  'What this Trustee needs before confidential workloads can attest and receive secrets.',
+                )}
+              </Content>
+              {readinessChecks.map((c) => (
+                <Flex
+                  key={c.id}
+                  gap={{ default: 'gapSm' }}
+                  alignItems={{ default: 'alignItemsFlexStart' }}
+                  className="trustee-openshift-console-plugin__mb"
+                >
+                  <FlexItem>
+                    <ReadinessIcon state={c.state} />
+                  </FlexItem>
+                  <FlexItem>
+                    <div>{c.label}</div>
+                    <div className="trustee-openshift-console-plugin__muted">{c.detail}</div>
+                  </FlexItem>
+                </Flex>
+              ))}
+            </CardBody>
+          </Card>
+        )}
 
         <ExpandableSection
           toggleText={t('Prerequisites & out-of-cluster steps')}

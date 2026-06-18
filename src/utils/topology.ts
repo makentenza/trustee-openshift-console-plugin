@@ -68,6 +68,20 @@ export const teeTypeForNode = (node?: NodeKind): TeeType => {
   return 'none';
 };
 
+/**
+ * Best-effort cluster TEE platform from node NFD labels — used to pre-select the
+ * reference-value generator's platform instead of forcing a manual TDX/SNP pick
+ * (a wrong choice makes evidence never match, with no error). Returns the first
+ * TEE found scanning nodes; `null` when no node carries a TEE label.
+ */
+export const detectClusterTee = (nodes: NodeKind[]): 'tdx' | 'snp' | null => {
+  for (const node of nodes) {
+    const tee = teeTypeForNode(node);
+    if (tee !== 'none') return tee;
+  }
+  return null;
+};
+
 export const teeShort = (tee: TeeType): string =>
   tee === 'tdx' ? 'TDX' : tee === 'snp' ? 'SEV-SNP' : '';
 
