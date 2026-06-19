@@ -171,7 +171,7 @@ const TrusteeHealthTab: FC<TrusteeTabProps> = ({ obj }) => {
       <Card className="trustee-openshift-console-plugin__mb">
         <CardTitle>{t('Deployments')}</CardTitle>
         <CardBody>
-          <DescriptionList isHorizontal>
+          <DescriptionList isHorizontal isCompact>
             <DeploymentHealth name={TRUSTEE_KBS_DEPLOYMENT} namespace={namespace} />
             <DeploymentHealth name={TRUSTEE_OPERATOR_DEPLOYMENT} namespace={namespace} />
           </DescriptionList>
@@ -193,7 +193,7 @@ const TrusteeHealthTab: FC<TrusteeTabProps> = ({ obj }) => {
               {t('No KBS pods found. The Trustee operator may still be reconciling the KBS.')}
             </span>
           ) : (
-            <DescriptionList isHorizontal>
+            <DescriptionList isHorizontal isCompact>
               {kbsPods.map((pod) => (
                 <PodRow key={pod.metadata?.uid} pod={pod} namespace={namespace} />
               ))}

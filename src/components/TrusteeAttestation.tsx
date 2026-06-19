@@ -11,11 +11,9 @@ import {
 } from '@openshift-console/dynamic-plugin-sdk';
 import {
   Alert,
-  Bullseye,
   Button,
   Card,
   CardBody,
-  CardTitle,
   ClipboardCopy,
   Content,
   DataList,
@@ -25,20 +23,25 @@ import {
   DataListItemCells,
   DataListItemRow,
   DataListToggle,
+  EmptyState,
+  EmptyStateActions,
+  EmptyStateBody,
+  EmptyStateFooter,
   Flex,
   FlexItem,
   Grid,
   GridItem,
   Label,
   PageSection,
-  Spinner,
+  Skeleton,
 } from '@patternfly/react-core';
+import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import {
   CheckCircleIcon,
+  ExclamationCircleIcon,
   ExclamationTriangleIcon,
   LockIcon,
   OutlinedQuestionCircleIcon,
-  TimesCircleIcon,
 } from '@patternfly/react-icons';
 import { useKbsConfigs, useTrusteeConfigs, useTrusteeDefaultProject } from '../k8s/hooks';
 import {
@@ -104,16 +107,17 @@ const referenceValuesPresent = (cms: ConfigMapKind[]): boolean =>
 const CheckRowIcon: FC<{ state: Check['state'] }> = ({ state }) => {
   if (state === 'ok') return <CheckCircleIcon className={`${PREFIX}__icon-success`} />;
   if (state === 'warn') return <ExclamationTriangleIcon className={`${PREFIX}__icon-warning`} />;
-  if (state === 'fail') return <TimesCircleIcon className={`${PREFIX}__icon-danger`} />;
-  return <OutlinedQuestionCircleIcon className={`${PREFIX}__icon-info`} />;
+  if (state === 'fail') return <ExclamationCircleIcon className={`${PREFIX}__icon-danger`} />;
+  return <OutlinedQuestionCircleIcon />;
 };
 
-const StatTile: FC<{ value: number; label: string; onClick?: () => void; active?: boolean }> = ({
-  value,
-  label,
-  onClick,
-  active,
-}) => (
+const StatTile: FC<{
+  value: number;
+  label: string;
+  onClick?: () => void;
+  active?: boolean;
+  loading?: boolean;
+}> = ({ value, label, onClick, active, loading }) => (
   <Card
     isCompact
     onClick={onClick}
@@ -135,11 +139,41 @@ const StatTile: FC<{ value: number; label: string; onClick?: () => void; active?
     }`}
   >
     <CardBody>
-      <div className={`${PREFIX}__stat-value`}>{value}</div>
+      <div className={`${PREFIX}__stat-value`}>
+        {loading ? <Skeleton width="3rem" height="1.5rem" /> : value}
+      </div>
       <div className={`${PREFIX}__stat-label`}>{label}</div>
     </CardBody>
   </Card>
 );
+
+const SkeletonTable: FC = () => {
+  const { t } = useTranslation('plugin__trustee-openshift-console-plugin');
+  return (
+    <Table aria-label={t('Loading')} variant="compact">
+      <Thead>
+        <Tr>
+          {Array.from({ length: 6 }, (_, i) => (
+            <Th key={i}>
+              <Skeleton width="5rem" />
+            </Th>
+          ))}
+        </Tr>
+      </Thead>
+      <Tbody>
+        {Array.from({ length: 5 }, (_, i) => (
+          <Tr key={i}>
+            {Array.from({ length: 6 }, (_, j) => (
+              <Td key={j}>
+                <Skeleton width={j === 0 ? '10rem' : '6rem'} />
+              </Td>
+            ))}
+          </Tr>
+        ))}
+      </Tbody>
+    </Table>
+  );
+};
 
 const ProbeDetail: FC<{
   w: AttestWorkload;
@@ -376,36 +410,42 @@ const TrusteeAttestation: FC = () => {
   };
   const visibleRows = filter === 'all' ? rows : rows.filter((r) => r.verdict === filter);
 
-  const loading = !tcLoaded || !podsLoaded || !nodesLoaded;
+  // The TrusteeConfig watch decides which top-level branch to render (no
+  // deployment vs the dashboard), so gate the page on it. The pod/node watches
+  // back the stat tiles and the workload list, which carry their own loading
+  // skeletons while those slower list watches resolve.
+  const loading = !tcLoaded;
+  const statsLoading = !podsLoaded || !nodesLoaded;
 
   return (
     <>
-      <DocumentTitle>{t('Attestation status')}</DocumentTitle>
-      <ListPageHeader title={t('Attestation status')} />
+      <DocumentTitle>{t('Confidential attestation overview')}</DocumentTitle>
+      <ListPageHeader title={t('Confidential attestation overview')} />
       <PageSection>
         {loading ? (
-          <Bullseye>
-            <Spinner aria-label={t('Loading')} />
-          </Bullseye>
+          <SkeletonTable />
         ) : trusteeConfigs.length === 0 ? (
-          <Card isLarge>
-            <CardTitle>
-              <LockIcon /> {t('No Trustee deployment found')}
-            </CardTitle>
-            <CardBody>
-              <p className={`${PREFIX}__mb`}>
-                {t(
-                  'Deploy Trustee to start attesting confidential workloads — one TrusteeConfig generates the KBS, policies, reference values, and secrets.',
-                )}
-              </p>
-              <Button
-                variant="primary"
-                component={(props) => <Link {...props} to="/trustee/setup" />}
-              >
-                {t('Go to Setup')}
-              </Button>
-            </CardBody>
-          </Card>
+          <EmptyState
+            headingLevel="h4"
+            titleText={t('No Trustee deployment found')}
+            icon={LockIcon}
+          >
+            <EmptyStateBody>
+              {t(
+                'Deploy Trustee to start attesting confidential workloads — one TrusteeConfig generates the KBS, policies, reference values, and secrets.',
+              )}
+            </EmptyStateBody>
+            <EmptyStateFooter>
+              <EmptyStateActions>
+                <Button
+                  variant="primary"
+                  component={(props) => <Link {...props} to="/trustee/setup" />}
+                >
+                  {t('Go to Setup')}
+                </Button>
+              </EmptyStateActions>
+            </EmptyStateFooter>
+          </EmptyState>
         ) : (
           <>
             {!kbsReady && (
@@ -441,6 +481,7 @@ const TrusteeAttestation: FC = () => {
                     setFilter('all');
                   }}
                   active={filter === 'all'}
+                  loading={statsLoading}
                 />
               </GridItem>
               <GridItem span={3}>
@@ -451,6 +492,7 @@ const TrusteeAttestation: FC = () => {
                     toggleFilter('healthy');
                   }}
                   active={filter === 'healthy'}
+                  loading={statsLoading}
                 />
               </GridItem>
               <GridItem span={3}>
@@ -461,6 +503,7 @@ const TrusteeAttestation: FC = () => {
                     toggleFilter('failing');
                   }}
                   active={filter === 'failing'}
+                  loading={statsLoading}
                 />
               </GridItem>
               <GridItem span={3}>
@@ -471,11 +514,14 @@ const TrusteeAttestation: FC = () => {
                     toggleFilter('no-attestation');
                   }}
                   active={filter === 'no-attestation'}
+                  loading={statsLoading}
                 />
               </GridItem>
             </Grid>
 
-            {rows.length === 0 ? (
+            {statsLoading ? (
+              <SkeletonTable />
+            ) : rows.length === 0 ? (
               <Card>
                 <CardBody>
                   <span className={`${PREFIX}__muted`}>
@@ -486,11 +532,25 @@ const TrusteeAttestation: FC = () => {
                 </CardBody>
               </Card>
             ) : visibleRows.length === 0 ? (
-              <Card>
-                <CardBody>
-                  <span className={`${PREFIX}__muted`}>{t('No workloads match this filter.')}</span>
-                </CardBody>
-              </Card>
+              <EmptyState headingLevel="h4" titleText={t('No results match the current filters')}>
+                <EmptyStateBody>
+                  {t('{{count}} confidential workloads are hidden by the active filter.', {
+                    count: rows.length,
+                  })}
+                </EmptyStateBody>
+                <EmptyStateFooter>
+                  <EmptyStateActions>
+                    <Button
+                      variant="link"
+                      onClick={() => {
+                        setFilter('all');
+                      }}
+                    >
+                      {t('Clear all filters')}
+                    </Button>
+                  </EmptyStateActions>
+                </EmptyStateFooter>
+              </EmptyState>
             ) : (
               <DataList aria-label={t('Confidential workload attestation status')}>
                 {visibleRows.map(({ w, verdict }) => {

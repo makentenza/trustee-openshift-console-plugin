@@ -73,7 +73,7 @@ const TrusteeGpuTab: FC<TrusteeTabProps> = ({ obj }) => {
           {!settled ? (
             <span className="trustee-openshift-console-plugin__muted">{t('Loading…')}</span>
           ) : (
-            <DescriptionList isHorizontal>
+            <DescriptionList isHorizontal isCompact>
               <DescriptionListGroup>
                 <DescriptionListTerm>{t('Verifier mode')}</DescriptionListTerm>
                 <DescriptionListDescription>
@@ -211,7 +211,7 @@ const TrusteeGpuTab: FC<TrusteeTabProps> = ({ obj }) => {
           <p className="trustee-openshift-console-plugin__mb trustee-openshift-console-plugin__muted">
             {t('Your GPU attestation policy should validate the claims NRAS returns:')}
           </p>
-          <DescriptionList isHorizontal>
+          <DescriptionList isHorizontal isCompact>
             <DescriptionListGroup>
               <DescriptionListTerm>{t('Verification status')}</DescriptionListTerm>
               <DescriptionListDescription>

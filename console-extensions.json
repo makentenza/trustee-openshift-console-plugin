@@ -75,7 +75,7 @@
       "id": "trustee-topology",
       "perspective": "admin",
       "section": "trustee",
-      "name": "%plugin__trustee-openshift-console-plugin~Topology%",
+      "name": "%plugin__trustee-openshift-console-plugin~Attestation topology%",
       "href": "/trustee/topology"
     },
     "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
@@ -86,7 +86,7 @@
       "id": "trustee-activity",
       "perspective": "admin",
       "section": "trustee",
-      "name": "%plugin__trustee-openshift-console-plugin~Activity%",
+      "name": "%plugin__trustee-openshift-console-plugin~Attestation activity%",
       "href": "/trustee/activity"
     },
     "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }

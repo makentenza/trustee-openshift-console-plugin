@@ -37,6 +37,7 @@ import {
   CheckCircleIcon,
   ExclamationTriangleIcon,
   InProgressIcon,
+  PlusCircleIcon,
 } from '@patternfly/react-icons';
 import type { K8sResourceCommon } from '@openshift-console/dynamic-plugin-sdk';
 import type { FC, ReactNode } from 'react';
@@ -74,13 +75,13 @@ type ServiceType = 'ClusterIP' | 'NodePort' | 'LoadBalancer';
 
 const PREFIX = 'trustee-openshift-console-plugin';
 
-/** Status glyph for a checklist row: check / spinner / warning, or a step number for not-yet-started. */
-const StepIndicator: FC<{ state: SetupStepState; n: number }> = ({ state, n }) => {
+/** Status glyph for a checklist row: check / spinner / warning, or a plus for not-yet-started. */
+const StepIndicator: FC<{ state: SetupStepState }> = ({ state }) => {
   if (state === 'ok') return <CheckCircleIcon className={`${PREFIX}__icon-success`} />;
   if (state === 'pending') return <InProgressIcon className={`${PREFIX}__icon-info`} />;
   if (state === 'attention')
     return <ExclamationTriangleIcon className={`${PREFIX}__icon-warning`} />;
-  return <span className={`${PREFIX}__step-num`}>{n}</span>;
+  return <PlusCircleIcon className={`${PREFIX}__muted`} />;
 };
 
 // CLI install manifests for the Trustee operator (own-namespace install), matching the
@@ -638,7 +639,7 @@ const DeployTrusteeWizard: FC = () => {
                 {t('Per-step configuration links unlock once you create the TrusteeConfig below.')}
               </Content>
             )}
-            {steps.map((step, i) => {
+            {steps.map((step) => {
               const meta = META[step.id];
               const detail = detailFor(step.id);
               const action = actionFor(step);
@@ -650,7 +651,7 @@ const DeployTrusteeWizard: FC = () => {
                   className="trustee-openshift-console-plugin__step-row"
                 >
                   <FlexItem>
-                    <StepIndicator state={step.state} n={i + 1} />
+                    <StepIndicator state={step.state} />
                   </FlexItem>
                   <FlexItem grow={{ default: 'grow' }}>
                     <Flex

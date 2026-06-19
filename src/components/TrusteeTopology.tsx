@@ -11,10 +11,11 @@ import {
   Alert,
   Bullseye,
   Button,
-  Card,
-  CardBody,
-  CardTitle,
   Content,
+  EmptyState,
+  EmptyStateActions,
+  EmptyStateBody,
+  EmptyStateFooter,
   PageSection,
   Spinner,
 } from '@patternfly/react-core';
@@ -74,23 +75,20 @@ const dotClass = (s: WlStatus): string => `${PREFIX}__topo-dot--${s}`;
 const EmptyTrustee: FC = () => {
   const { t } = useTranslation('plugin__trustee-openshift-console-plugin');
   return (
-    <Bullseye>
-      <Card isLarge>
-        <CardTitle>
-          <LockIcon /> {t('No Trustee deployment found')}
-        </CardTitle>
-        <CardBody>
-          <p className={`${PREFIX}__mb`}>
-            {t(
-              'The attestation topology shows the confidential workloads a Trustee attests, grouped by the node and cluster they run in. Create a TrusteeConfig to deploy Trustee, then return here.',
-            )}
-          </p>
-          <Button variant="primary" component={(props) => <Link {...props} to={SETUP} />}>
-            {t('Create TrusteeConfig')}
-          </Button>
-        </CardBody>
-      </Card>
-    </Bullseye>
+    <EmptyState headingLevel="h4" icon={LockIcon} titleText={t('No Trustee deployment found')}>
+      <EmptyStateBody>
+        {t(
+          'The attestation topology shows the confidential workloads a Trustee attests, grouped by the node and cluster they run in. Create a TrusteeConfig to deploy Trustee, then return here.',
+        )}
+      </EmptyStateBody>
+      <EmptyStateFooter>
+        <EmptyStateActions>
+          <Link to={SETUP}>
+            <Button variant="primary">{t('Create TrusteeConfig')}</Button>
+          </Link>
+        </EmptyStateActions>
+      </EmptyStateFooter>
+    </EmptyState>
   );
 };
 
@@ -378,7 +376,7 @@ const TrusteeTopology: FC = () => {
 
   return (
     <>
-      <DocumentTitle>{t('Topology')}</DocumentTitle>
+      <DocumentTitle>{t('Attestation topology')}</DocumentTitle>
       <ListPageHeader title={t('Attestation topology')} />
       <PageSection>
         {loading ? (
