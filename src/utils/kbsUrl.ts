@@ -92,3 +92,70 @@ export const buildKbsPassthroughRoute = (
     wildcardPolicy: 'None',
   },
 });
+
+/**
+ * Build an HTTP (no-TLS) Route exposing a plain-HTTP KBS for hub-and-spoke. The router
+ * serves it on :80 and forwards plaintext to kbs-service:8080. Used when the KBS runs
+ * `insecure_http` (the operator's default) — the workload attests over http:// with no
+ * cert. The released secret is still cryptographically wrapped to the TEE, so secret
+ * confidentiality holds; HTTP loses only server authentication of the KBS.
+ */
+export const buildKbsHttpRoute = (
+  trusteeConfigName: string,
+  namespace: string,
+  serviceName: string = KBS_SERVICE_NAME,
+): Record<string, unknown> => ({
+  apiVersion: 'route.openshift.io/v1',
+  kind: 'Route',
+  metadata: { name: kbsRouteName(trusteeConfigName), namespace },
+  spec: {
+    to: { kind: 'Service', name: serviceName, weight: 100 },
+    port: { targetPort: KBS_SERVICE_PORT },
+    wildcardPolicy: 'None',
+  },
+});
+
+export type KbsTlsMode = 'http' | 'https' | 'unknown';
+
+/**
+ * How the KBS's rendered kbs-config.toml exposes its HTTP server:
+ * - 'http'    — `insecure_http = true` (the operator default): plain HTTP, no TLS.
+ * - 'https'   — `[http_server]` has `private_key` + `certificate`: real TLS.
+ * - 'unknown' — couldn't tell (no config / unparseable).
+ * A confidential workload must use http:// for 'http' and https:// (+ a pinned CA) for
+ * 'https'. The trustee-operator (v1.1.0) renders 'http' even when an httpsSpec cert is
+ * given, which is why a passthrough Route + https initdata silently fails to attest.
+ */
+export const kbsTlsModeFromToml = (toml?: string): KbsTlsMode => {
+  if (!toml) return 'unknown';
+  if (/^\s*insecure_http\s*=\s*true/m.test(toml)) return 'http';
+  if (/^\s*certificate\s*=/m.test(toml) && /^\s*private_key\s*=/m.test(toml)) return 'https';
+  if (/^\s*insecure_http\s*=\s*false/m.test(toml)) return 'https';
+  return 'unknown';
+};
+
+/** Mount paths the operator gives the KBS cert/key secrets (kbsHttpsCert/KeySecretName). */
+export const KBS_TLS_CERT_PATH = '/etc/https-cert/certificate';
+export const KBS_TLS_KEY_PATH = '/etc/https-key/privateKey';
+
+/**
+ * Rewrite a kbs-config.toml's [http_server] block to terminate TLS with the mounted
+ * cert/key instead of `insecure_http`. The operator mounts the httpsSpec cert at
+ * KBS_TLS_CERT_PATH / KBS_TLS_KEY_PATH but (v1.1.0) leaves `insecure_http = true`, so
+ * "Enforce TLS on KBS" applies this. Idempotent: a config already serving TLS is
+ * returned unchanged. The ConfigMap is operator-owned but not content-reconciled, so the
+ * edit persists; KBS must be restarted to load it.
+ */
+export const kbsConfigEnableTls = (
+  toml: string,
+  certPath: string = KBS_TLS_CERT_PATH,
+  keyPath: string = KBS_TLS_KEY_PATH,
+): string => {
+  if (kbsTlsModeFromToml(toml) === 'https') return toml;
+  const tlsLines = `private_key = "${keyPath}"\ncertificate = "${certPath}"`;
+  if (/^[ \t]*insecure_http[ \t]*=[ \t]*true[ \t]*$/m.test(toml)) {
+    return toml.replace(/^[ \t]*insecure_http[ \t]*=[ \t]*true[ \t]*$/m, tlsLines);
+  }
+  // No insecure_http line to swap: inject the TLS lines just under [http_server].
+  return toml.replace(/^([ \t]*\[http_server\][ \t]*)$/m, `$1\n${tlsLines}`);
+};
