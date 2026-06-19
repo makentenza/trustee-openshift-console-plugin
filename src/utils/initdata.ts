@@ -1,9 +1,11 @@
 // Build and encode Kata "initdata" entirely in the browser — no backend, no new deps.
-// Initdata is authored on the Trustee (attestation authority) side: its PCR8 measurement
-// is added to the RVPS reference values, and the gzip+base64 annotation is shared with the
+// Initdata is authored on the Trustee (attestation authority) side: its measurement is
+// added to the RVPS reference values, and the gzip+base64 annotation is shared with the
 // confidential-workload owner to put on their pod.
 //   initdata.toml  ->  gzip | base64   (the cc_init_data pod annotation)
-//   PCR8_HASH = sha256( 32 zero bytes || <algorithm>(initdata.toml) )   (for RVPS)
+//   measurement    =  <algorithm>(initdata.toml), placed verbatim in the TDX TD report's
+//                     48-byte MRCONFIGID / `init_data` register (right zero-padded for a
+//                     short digest). This is the RAW padded digest — NOT a TPM PCR-extend.
 
 export type HashAlgo = 'sha256' | 'sha384' | 'sha512';
 
@@ -141,12 +143,6 @@ const toHex = (buf: ArrayBuffer): string =>
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 
-const hexToBytes = (hex: string): Uint8Array => {
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
-};
-
 const digestHex = async (algo: HashAlgo, data: Uint8Array): Promise<string> =>
   toHex(await crypto.subtle.digest(SUBTLE[algo], data.buffer as ArrayBuffer));
 
@@ -164,18 +160,29 @@ export const gzipBase64 = async (text: string): Promise<string> => {
   return btoa(binary);
 };
 
-/** PCR8 reference value for RVPS: sha256( 32 zero bytes || <algorithm>(toml) ). */
+/**
+ * The initdata measurement Trustee's TDX verifier surfaces as the `init_data` claim and
+ * the OPA policy compares to the RVPS reference value. The kata guest hashes initdata.toml
+ * with `algorithm` and the host writes that digest into the TD report's 48-byte MRCONFIGID
+ * register, right zero-padded when the digest is shorter (sha256 → 32 B + 16 zero bytes;
+ * sha384 fills it exactly; sha512 is truncated — prefer sha384/sha256 for TDX).
+ *
+ * This is the RAW padded digest, NOT a TPM PCR-extend. The old `sha256(32 zeros ‖ digest)`
+ * form passed under a Permissive policy (which doesn't gate on init_data) but never matched
+ * a real TD quote, so it rejected every workload under Restricted. Verified against a live
+ * TD quote's mr_config_id.
+ */
 export const computePcr8 = async (algorithm: HashAlgo, tomlText: string): Promise<string> => {
-  const hashHex = await digestHex(algorithm, new TextEncoder().encode(tomlText));
-  const initialPcr = '00'.repeat(32);
-  return digestHex('sha256', hexToBytes(initialPcr + hashHex));
+  const digestHexStr = await digestHex(algorithm, new TextEncoder().encode(tomlText));
+  // MRCONFIGID is 48 bytes (96 hex): pad short digests with trailing zeros, truncate long.
+  return (digestHexStr + '0'.repeat(96)).slice(0, 96);
 };
 
 export interface InitdataResult {
   toml: string;
   /** gzip+base64 — the io.katacontainers.config.hypervisor.cc_init_data annotation. */
   annotation: string;
-  /** PCR8 hash — added to the RVPS reference values in Trustee. */
+  /** init_data measurement (TDX MRCONFIGID) — added to the RVPS reference values in Trustee. */
   pcr8: string;
 }
 
