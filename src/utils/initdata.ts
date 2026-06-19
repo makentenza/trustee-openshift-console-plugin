@@ -95,6 +95,15 @@ export const buildInitdataToml = (input: InitdataInput): string => {
   const certBlock = certBody
     ? `kbs_cert = """\n-----BEGIN CERTIFICATE-----\n${certBody}\n-----END CERTIFICATE-----\n"""\n`
     : '';
+  // The same cert must ALSO be pinned in aa.toml's token_configs. The Attestation
+  // Agent performs the KBS attestation handshake itself (POST /kbs/v0/attest), so it
+  // needs the cert to validate an HTTPS KBS — without it the AA fails with
+  // "AA-KBC get token failed" and the whole resource fetch fails, even though cdh.toml
+  // carries kbs_cert (CDH only does the post-attestation resource GET). The aa.toml
+  // field is `cert` (not `kbs_cert`). See trustee-initdata-hubspoke-bugs.
+  const aaCertBlock = certBody
+    ? `cert = """\n-----BEGIN CERTIFICATE-----\n${certBody}\n-----END CERTIFICATE-----\n"""\n`
+    : '';
   // NB: the [image] table must live INSIDE the cdh.toml heredoc (CDH reads
   // image_security_policy_uri from cdh.toml). It is appended before the closing
   // ''' below — not after, or it would land at the document's top level and the
@@ -110,10 +119,10 @@ version = "0.1.0"
 [token_configs]
 [token_configs.coco_as]
 url = '${trusteeUrl}'
-
+${aaCertBlock}
 [token_configs.kbs]
 url = '${trusteeUrl}'
-'''
+${aaCertBlock}'''
 "cdh.toml" = '''
 socket = 'unix:///run/confidential-containers/cdh.sock'
 credentials = []
