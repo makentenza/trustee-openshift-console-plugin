@@ -217,6 +217,7 @@
   "No TrusteeConfig selected": "No TrusteeConfig selected",
   "No warning or attestation-related events for this pod.": "No warning or attestation-related events for this pod.",
   "No workloads match this filter.": "No workloads match this filter.",
+  "Node {{name}}": "Node {{name}}",
   "none": "none",
   "None registered yet — attestation stays denied until they exist.": "None registered yet — attestation stays denied until they exist.",
   "Not attesting": "Not attesting",
@@ -357,6 +358,7 @@
   "Topology": "Topology",
   "Trustee": "Trustee",
   "Trustee (KBS) URL": "Trustee (KBS) URL",
+  "Trustee attestation hub": "Trustee attestation hub",
   "Trustee is already deployed on this cluster": "Trustee is already deployed on this cluster",
   "Trustee is the attestation hub. Its Key Broker Service (KBS) verifies a confidential workload’s hardware evidence at boot and only then releases secrets and keys to it. Each workload runs inside a node’s Trusted Execution Environment, in a cluster — shown here nested as workload → node → cluster.": "Trustee is the attestation hub. Its Key Broker Service (KBS) verifies a confidential workload’s hardware evidence at boot and only then releases secrets and keys to it. Each workload runs inside a node’s Trusted Execution Environment, in a cluster — shown here nested as workload → node → cluster.",
   "Trustee is the confidential containers attestation service. Its operator provides the TrusteeConfig API this section is built around, and it isn’t installed on this cluster yet. Install it, then return here to deploy and configure Trustee.": "Trustee is the confidential containers attestation service. Its operator provides the TrusteeConfig API this section is built around, and it isn’t installed on this cluster yet. Install it, then return here to deploy and configure Trustee.",
@@ -390,6 +392,7 @@
   "Where will the confidential workloads run?": "Where will the confidential workloads run?",
   "Whether NRAS successfully verified the GPU attestation evidence.": "Whether NRAS successfully verified the GPU attestation evidence.",
   "Whether the GPU has Confidential Computing enabled.": "Whether the GPU has Confidential Computing enabled.",
+  "Workload {{namespace}}/{{name}}": "Workload {{namespace}}/{{name}}",
   "You can also manage delivery from the KbsConfig": "You can also manage delivery from the KbsConfig",
   "Your GPU attestation policy should validate the claims NRAS returns:": "Your GPU attestation policy should validate the claims NRAS returns:"
 }

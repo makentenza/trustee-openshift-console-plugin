@@ -1,4 +1,4 @@
-import type { FC } from 'react';
+import type { FC, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom-v5-compat';
 import { useTranslation } from 'react-i18next';
@@ -117,6 +117,19 @@ const StatTile: FC<{ value: number; label: string; onClick?: () => void; active?
   <Card
     isCompact
     onClick={onClick}
+    {...(onClick
+      ? {
+          role: 'button',
+          tabIndex: 0,
+          'aria-pressed': !!active,
+          onKeyDown: (e: ReactKeyboardEvent) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              if (e.key === ' ') e.preventDefault();
+              onClick();
+            }
+          },
+        }
+      : {})}
     className={`${PREFIX}__stat${onClick ? ` ${PREFIX}__stat--clickable` : ''}${
       active ? ` ${PREFIX}__stat--active` : ''
     }`}
