@@ -1,8 +1,11 @@
 import {
+  buildKbsHttpRoute,
   buildKbsPassthroughRoute,
   isEdgeRoute,
   isInClusterKbsUrl,
+  kbsConfigEnableTls,
   kbsRouteName,
+  kbsTlsModeFromToml,
   warnInClusterForSharing,
 } from './kbsUrl';
 import { KBS_SERVICE_NAME } from '../k8s/resources';
@@ -93,5 +96,63 @@ describe('buildKbsPassthroughRoute', () => {
   it('targets the KBS Service with passthrough TLS (CDH rejects edge)', () => {
     expect(route.spec.to.name).toBe(KBS_SERVICE_NAME);
     expect(route.spec.tls.termination).toBe('passthrough');
+  });
+});
+
+describe('buildKbsHttpRoute', () => {
+  const route = buildKbsHttpRoute('trustee-config', 'trustee-operator-system') as {
+    metadata: { name: string };
+    spec: { to: { name: string }; tls?: unknown };
+  };
+
+  it('targets the KBS Service with NO tls block (plain HTTP via the router)', () => {
+    expect(route.metadata.name).toBe('trustee-config-kbs');
+    expect(route.spec.to.name).toBe(KBS_SERVICE_NAME);
+    expect(route.spec.tls).toBeUndefined();
+  });
+});
+
+describe('kbsTlsModeFromToml', () => {
+  it('reads insecure_http = true as http (the operator default)', () => {
+    expect(
+      kbsTlsModeFromToml('[http_server]\nsockets = ["0.0.0.0:8080"]\ninsecure_http = true\n'),
+    ).toBe('http');
+  });
+
+  it('reads a private_key + certificate listener as https', () => {
+    expect(
+      kbsTlsModeFromToml(
+        '[http_server]\nprivate_key = "/etc/https-key/privateKey"\ncertificate = "/etc/https-cert/certificate"\n',
+      ),
+    ).toBe('https');
+  });
+
+  it('reads insecure_http = false as https', () => {
+    expect(kbsTlsModeFromToml('[http_server]\ninsecure_http = false\n')).toBe('https');
+  });
+
+  it('is unknown for empty/unrecognized config', () => {
+    expect(kbsTlsModeFromToml(undefined)).toBe('unknown');
+    expect(kbsTlsModeFromToml('[attestation_service]\n')).toBe('unknown');
+  });
+});
+
+describe('kbsConfigEnableTls', () => {
+  const http =
+    '[http_server]\nsockets = ["0.0.0.0:8080"]\ninsecure_http = true\nworker_count = 4\n';
+
+  it('swaps insecure_http for the mounted cert/key paths, keeping the rest', () => {
+    const out = kbsConfigEnableTls(http);
+    expect(out).not.toContain('insecure_http');
+    expect(out).toContain('private_key = "/etc/https-key/privateKey"');
+    expect(out).toContain('certificate = "/etc/https-cert/certificate"');
+    expect(kbsTlsModeFromToml(out)).toBe('https');
+    expect(out).toContain('sockets = ["0.0.0.0:8080"]');
+    expect(out).toContain('worker_count = 4');
+  });
+
+  it('is idempotent on a config already serving TLS', () => {
+    const tls = kbsConfigEnableTls(http);
+    expect(kbsConfigEnableTls(tls)).toBe(tls);
   });
 });

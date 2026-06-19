@@ -43,10 +43,16 @@ interface Props {
 }
 
 /**
- * The in-cluster Job: openssl generates a self-signed cert+key, then curl
- * server-side-applies it as a kubernetes.io/tls Secret using the Job's own
- * ServiceAccount token. The private key is generated inside the cluster and never
- * reaches the browser.
+ * The in-cluster Job: openssl mints a CA and a server leaf it signs, then curl
+ * server-side-applies them as a kubernetes.io/tls Secret (tls.crt = leaf, tls.key,
+ * ca.crt = the CA) using the Job's own ServiceAccount token. The private key is
+ * generated inside the cluster and never reaches the browser.
+ *
+ * Why a CA → leaf chain (not a single self-signed cert): the in-guest Confidential
+ * Data Hub validates the KBS with rustls/webpki, which REJECTS a self-signed CA:TRUE
+ * certificate presented as the server leaf. KBS must serve an end-entity leaf
+ * (serverAuth, CA:FALSE) signed by a separate CA, and the workload pins that CA
+ * (the secret's ca.crt) in its initdata.
  */
 const buildScript = (opts: {
   secret: string;
@@ -58,14 +64,23 @@ const buildScript = (opts: {
   return [
     'set -e',
     'cd /tmp',
-    `openssl req -x509 -newkey rsa:2048 -nodes -keyout tls.key -out tls.crt -subj "/CN=${cn}" -addext "subjectAltName=${san}" -days 825`,
+    // 1. CA (self-signed root) — the trust anchor the workload pins in its initdata.
+    'openssl genrsa -out ca.key 2048',
+    `openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 -subj "/CN=${cn} Root CA" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" -out ca.crt`,
+    // 2. Server leaf — end-entity (CA:FALSE), serverAuth EKU, SAN = the KBS hostnames.
+    'openssl genrsa -out tls.key 2048',
+    `openssl req -new -key tls.key -subj "/CN=${cn}" -out tls.csr`,
+    `printf 'basicConstraints=critical,CA:FALSE\\nkeyUsage=critical,digitalSignature,keyEncipherment\\nextendedKeyUsage=serverAuth\\nsubjectAltName=${san}\\n' > leaf.ext`,
+    'openssl x509 -req -in tls.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 825 -sha256 -extfile leaf.ext -out tls.crt',
     'B64CRT=$(base64 -w0 tls.crt)',
     'B64KEY=$(base64 -w0 tls.key)',
+    'B64CA=$(base64 -w0 ca.crt)',
     'TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)',
-    'CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt',
+    'KUBECA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt',
     'API="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"',
-    `printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s"},"type":"kubernetes.io/tls","data":{"tls.crt":"%s","tls.key":"%s"}}' "${secret}" "$B64CRT" "$B64KEY" > secret.json`,
-    `curl -sS --fail-with-body --cacert "$CA" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/apply-patch+yaml" -X PATCH "\${API}/api/v1/namespaces/${namespace}/secrets/${secret}?fieldManager=trustee-tls-gen&force=true" --data-binary @secret.json`,
+    // KBS serves tls.crt/tls.key (the leaf); ca.crt is the anchor the workload pins.
+    `printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s"},"type":"kubernetes.io/tls","data":{"tls.crt":"%s","tls.key":"%s","ca.crt":"%s"}}' "${secret}" "$B64CRT" "$B64KEY" "$B64CA" > secret.json`,
+    `curl -sS --fail-with-body --cacert "$KUBECA" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/apply-patch+yaml" -X PATCH "\${API}/api/v1/namespaces/${namespace}/secrets/${secret}?fieldManager=trustee-tls-gen&force=true" --data-binary @secret.json`,
     `echo "CREATED ${secret}"`,
   ].join('\n');
 };
@@ -207,7 +222,7 @@ const GenerateTlsSecretModal: FC<Props> = ({
         <Form>
           <Alert variant="info" isInline title={t('How this works')} className={`${PREFIX}__mb`}>
             {t(
-              'Runs a short in-cluster Job that generates a self-signed cert and key with openssl and stores them as a kubernetes.io/tls Secret. The private key is created inside the cluster and never reaches your browser. Substitute your own CA for production.',
+              'Runs a short in-cluster Job that mints a CA and a server certificate it signs (openssl), stored as a kubernetes.io/tls Secret: tls.crt + tls.key are the leaf KBS serves, ca.crt is the CA the workload pins in its initdata. A proper CA→leaf chain is required — the in-guest Confidential Data Hub rejects a single self-signed certificate. The private key is created inside the cluster and never reaches your browser.',
             )}
           </Alert>
 

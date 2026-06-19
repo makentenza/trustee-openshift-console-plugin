@@ -11,6 +11,7 @@ import {
 } from '@openshift-console/dynamic-plugin-sdk';
 import {
   Alert,
+  AlertActionLink,
   Button,
   Card,
   CardBody,
@@ -36,6 +37,7 @@ import {
 import {
   ConfigMapGVK,
   ConfigMapModel,
+  DeploymentModel,
   INITDATA_REFERENCE_VALUE_NAME,
   KBS_SERVICE_NAME,
   KBS_SERVICE_PORT,
@@ -48,7 +50,7 @@ import {
   SHARED_INITDATA_LABEL,
   SecretGVK,
 } from '../../k8s/resources';
-import type { ConfigMapKind, RouteKind, SecretKind } from '../../k8s/types';
+import type { ConfigMapKind, DeploymentKind, RouteKind, SecretKind } from '../../k8s/types';
 import {
   buildInitdata,
   SENSITIVE_REQUESTS,
@@ -56,11 +58,21 @@ import {
   type InitdataResult,
   type SensitiveRequest,
 } from '../../utils/initdata';
-import { buildKbsPassthroughRoute, isEdgeRoute, isInClusterKbsUrl } from '../../utils/kbsUrl';
+import {
+  buildKbsHttpRoute,
+  buildKbsPassthroughRoute,
+  isEdgeRoute,
+  isInClusterKbsUrl,
+  kbsConfigEnableTls,
+  kbsTlsModeFromToml,
+} from '../../utils/kbsUrl';
 import type { TrusteeTabProps } from './types';
 import '../trustee.css';
 
 const PREFIX = 'trustee-openshift-console-plugin';
+
+// The operator names the KBS Deployment this regardless of the TrusteeConfig name.
+const KBS_DEPLOYMENT_NAME = 'trustee-deployment';
 
 const DEFAULT_ALLOW: Record<SensitiveRequest, boolean> = {
   ExecProcessRequest: false,
@@ -84,7 +96,22 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
   const namespace = obj?.metadata?.namespace ?? '';
   const httpsSecretName = obj?.spec?.httpsSpec?.tlsSecretName;
 
-  // --- endpoint detection: in-cluster Service + external Route ---
+  // --- KBS scheme: read the operator-rendered kbs-config.toml ---
+  // A workload must attest over the scheme KBS actually serves: http:// (no cert) for the
+  // operator's default insecure_http, or https:// + a pinned CA when KBS terminates TLS.
+  // Assuming https over the default http KBS is exactly why a passthrough Route + https
+  // initdata silently fails to attest, so we detect it instead of assuming.
+  const kbsConfigCmName = name ? `${name}-kbs-config` : undefined;
+  const [kbsConfigCm] = useK8sWatchResource<ConfigMapKind>(
+    kbsConfigCmName ? { groupVersionKind: ConfigMapGVK, name: kbsConfigCmName, namespace } : null,
+  ) as [ConfigMapKind | undefined, boolean, unknown];
+  const kbsTlsMode = kbsTlsModeFromToml(kbsConfigCm?.data?.['kbs-config.toml']);
+  // 'unknown' falls back to http — the operator default and the combination that works out
+  // of the box; the URL/cert fields stay editable for an atypical setup.
+  const kbsServesHttps = kbsTlsMode === 'https';
+  const scheme = kbsServesHttps ? 'https' : 'http';
+
+  // --- external Route ---
   const [routes] = useK8sWatchResource<RouteKind[]>({
     groupVersionKind: RouteGVK,
     namespace,
@@ -94,21 +121,21 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
     () => (routes ?? []).find((r) => r.spec?.to?.name === KBS_SERVICE_NAME),
     [routes],
   );
-  const externalUrl = kbsRoute?.spec?.host ? `https://${kbsRoute.spec.host}` : undefined;
-  const routeIsEdge = isEdgeRoute(kbsRoute);
-  // In-cluster KBS endpoint is HTTP: the trustee-operator's KBS serves plain HTTP by default
-  // (insecure_http=true), and the in-guest CDH (rustls) rejects the operator's self-signed
-  // HTTPS cert outright (no hostname/CA leeway), so HTTPS to the in-cluster Service does not
-  // work. `.svc` is the fully-qualified Service host (also matches the cert CN/SAN should you
-  // later front the KBS with a CDH-trusted HTTPS cert). The field stays editable for that case.
-  const inClusterUrl = `http://${KBS_SERVICE_NAME}.${namespace}.svc:${KBS_SERVICE_PORT}`;
+  const externalUrl = kbsRoute?.spec?.host ? `${scheme}://${kbsRoute.spec.host}` : undefined;
+  // An edge Route only matters when KBS serves TLS (passthrough); for an http KBS the Route
+  // is plain HTTP and there is no edge-cert concern.
+  const routeIsEdge = kbsServesHttps && isEdgeRoute(kbsRoute);
+  const inClusterUrl = `${scheme}://${KBS_SERVICE_NAME}.${namespace}.svc:${KBS_SERVICE_PORT}`;
 
-  // --- cert auto-fill from the HTTPS secret (passthrough route / in-cluster TLS) ---
+  // --- cert auto-fill from the HTTPS secret (only when KBS serves TLS) ---
   const [httpsSecret] = useK8sWatchResource<SecretKind>(
     httpsSecretName ? { groupVersionKind: SecretGVK, name: httpsSecretName, namespace } : null,
   ) as [SecretKind | undefined, boolean, unknown];
+  // Pin the CA (ca.crt) the generator ships, NOT the leaf (tls.crt): the in-guest CDH trusts
+  // the CA and validates the leaf KBS serves against it (rustls rejects a self-signed leaf).
+  // Fall back to tls.crt for an older single-cert secret.
   const autoCert = useMemo(() => {
-    const b64 = httpsSecret?.data?.['tls.crt'];
+    const b64 = httpsSecret?.data?.['ca.crt'] ?? httpsSecret?.data?.['tls.crt'];
     if (!b64) return '';
     try {
       return atob(b64);
@@ -143,6 +170,7 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
   const [rvStatus, setRvStatus] = useState('');
   const [shareStatus, setShareStatus] = useState('');
   const [routeStatus, setRouteStatus] = useState('');
+  const [enforceStatus, setEnforceStatus] = useState('');
 
   // Default the URL from the effective endpoint, until the user edits it.
   useEffect(() => {
@@ -151,11 +179,13 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
     setTrusteeUrl(effectiveMode === 'external' ? (externalUrl ?? '') : inClusterUrl);
   }, [effectiveMode, externalUrl, inClusterUrl, urlTouched]);
 
-  // Pre-fill the cert from the HTTPS secret, until the user edits it.
+  // Pre-fill the cert from the HTTPS secret when KBS serves TLS; clear it for an http KBS
+  // (no cert needed) — until the user edits the field.
   useEffect(() => {
+    if (certTouched) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!certTouched && autoCert) setKbsCert(autoCert);
-  }, [autoCert, certTouched]);
+    setKbsCert(kbsServesHttps && autoCert ? autoCert : '');
+  }, [autoCert, certTouched, kbsServesHttps]);
 
   const requestHelp: Record<SensitiveRequest, string> = {
     ExecProcessRequest: t('Allow oc/kubectl exec into the confidential VM (recommended off).'),
@@ -186,20 +216,70 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
     }
   };
 
-  // Create a passthrough Route to the KBS so a spoke can reach it (hub-and-spoke).
-  // CDH rejects an edge-terminated Route's cluster ingress cert, so we always make
-  // it passthrough.
+  // Create a Route exposing the KBS so a spoke can reach it (hub-and-spoke). For an http
+  // KBS that's a plain HTTP Route; for a TLS KBS a passthrough Route (CDH rejects an
+  // edge-terminated Route's cluster ingress cert).
   const createRoute = async () => {
     if (!name) return;
     setRouteStatus('');
     try {
       await k8sCreate({
         model: RouteModel,
-        data: buildKbsPassthroughRoute(name, namespace),
+        data: kbsServesHttps
+          ? buildKbsPassthroughRoute(name, namespace)
+          : buildKbsHttpRoute(name, namespace),
       });
       setRouteStatus('ok');
     } catch (e) {
       setRouteStatus(`error:${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  // Enforce TLS on the KBS. The operator mounts the httpsSpec cert but (v1.1.0) leaves
+  // insecure_http=true, so KBS serves plain HTTP. Patch the rendered kbs-config.toml to
+  // terminate TLS with the mounted cert/key, then restart KBS to load it. The ConfigMap is
+  // operator-owned but not content-reconciled, so the edit persists — a workaround for the
+  // operator gap, paired with a CA→leaf cert and pinning the CA in initdata.
+  const enforceTls = async () => {
+    if (!kbsConfigCmName) return;
+    setEnforceStatus('working');
+    try {
+      const cm = await k8sGet<ConfigMapKind>({
+        model: ConfigMapModel,
+        name: kbsConfigCmName,
+        ns: namespace,
+      });
+      const toml = cm.data?.['kbs-config.toml'];
+      if (!toml) throw new Error(t('kbs-config.toml not found in {{cm}}', { cm: kbsConfigCmName }));
+      await k8sPatch({
+        model: ConfigMapModel,
+        resource: cm,
+        data: [{ op: 'add', path: '/data/kbs-config.toml', value: kbsConfigEnableTls(toml) }],
+      });
+      // Restart KBS so it loads the TLS listener. Best-effort: the config edit is what
+      // matters — KBS also picks it up on its next restart.
+      try {
+        const dep = await k8sGet<DeploymentKind>({
+          model: DeploymentModel,
+          name: KBS_DEPLOYMENT_NAME,
+          ns: namespace,
+        });
+        const existing = (
+          dep as { spec?: { template?: { metadata?: { annotations?: Record<string, string> } } } }
+        ).spec?.template?.metadata?.annotations;
+        const anns = { ...(existing ?? {}), 'kbs.trustee/restartedAt': new Date().toISOString() };
+        await k8sPatch({
+          model: DeploymentModel,
+          resource: dep,
+          data: [{ op: 'add', path: '/spec/template/metadata/annotations', value: anns }],
+        });
+      } catch {
+        setEnforceStatus('config-only');
+        return;
+      }
+      setEnforceStatus('ok');
+    } catch (e) {
+      setEnforceStatus(`error:${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -394,6 +474,47 @@ spec:
                   </FormHelperText>
                 </FormGroup>
 
+                {kbsTlsMode === 'http' && httpsSecretName && (
+                  <Alert
+                    variant="warning"
+                    isInline
+                    title={t('KBS is serving plain HTTP despite a configured TLS certificate')}
+                    className={`${PREFIX}__mb`}
+                    actionLinks={
+                      <AlertActionLink
+                        onClick={() => void enforceTls()}
+                        isDisabled={enforceStatus === 'working'}
+                      >
+                        {enforceStatus === 'working' ? t('Enforcing…') : t('Enforce TLS on KBS')}
+                      </AlertActionLink>
+                    }
+                  >
+                    {t(
+                      'The operator mounted the certificate from {{secret}} but left the KBS listener on insecure_http, so it serves plain HTTP and the initdata below defaults to http://. “Enforce TLS on KBS” rewrites the KBS config to terminate TLS with that certificate and restarts KBS; then re-generate the initdata as https:// with the CA pinned. Generate the certificate from “Generate TLS secret” so it is a CA→leaf chain the in-guest CDH accepts.',
+                      { secret: httpsSecretName },
+                    )}
+                    {enforceStatus === 'ok' && (
+                      <div className={`${PREFIX}__mt ${PREFIX}__icon-success`}>
+                        {t(
+                          'KBS config updated and restarted — it now serves HTTPS. Re-generate the initdata as https://.',
+                        )}
+                      </div>
+                    )}
+                    {enforceStatus === 'config-only' && (
+                      <div className={`${PREFIX}__mt`}>
+                        {t(
+                          'KBS config updated, but the automatic restart failed — restart the trustee-deployment to apply.',
+                        )}
+                      </div>
+                    )}
+                    {enforceStatus.startsWith('error:') && (
+                      <div className={`${PREFIX}__mt ${PREFIX}__icon-danger`}>
+                        {enforceStatus.slice(6)}
+                      </div>
+                    )}
+                  </Alert>
+                )}
+
                 {sharingInClusterUrl && (
                   <Alert
                     variant="warning"
@@ -429,7 +550,7 @@ spec:
                 {!externalUrl && (
                   <div className={`${PREFIX}__mb`}>
                     <Button variant="secondary" onClick={() => void createRoute()}>
-                      {t('Create passthrough Route')}
+                      {kbsServesHttps ? t('Create passthrough Route') : t('Create HTTP Route')}
                     </Button>{' '}
                     {routeStatus === 'ok' && (
                       <span className={`${PREFIX}__icon-success`}>
@@ -442,9 +563,13 @@ spec:
                     <FormHelperText>
                       <HelperText>
                         <HelperTextItem>
-                          {t(
-                            'Expose this Trustee’s KBS to other clusters with a passthrough Route (the only TLS termination the in-guest CDH accepts). Needed for hub-and-spoke.',
-                          )}
+                          {kbsServesHttps
+                            ? t(
+                                'Expose this Trustee’s KBS to other clusters with a passthrough Route (the only TLS termination the in-guest CDH accepts). Needed for hub-and-spoke.',
+                              )
+                            : t(
+                                'Expose this Trustee’s KBS to other clusters with an HTTP Route — KBS serves plain HTTP. Needed for hub-and-spoke; the released secret is still cryptographically wrapped to the TEE.',
+                              )}
                         </HelperTextItem>
                       </HelperText>
                     </FormHelperText>
@@ -477,17 +602,19 @@ spec:
                   <FormHelperText>
                     <HelperText>
                       <HelperTextItem>
-                        {autoCert && !certTouched
-                          ? t('Auto-filled from the HTTPS secret {{secret}}.', {
+                        {autoCert && !certTouched && kbsServesHttps
+                          ? t('Auto-filled with the CA from the HTTPS secret {{secret}}.', {
                               secret: httpsSecretName,
                             })
                           : effectiveMode === 'external' && routeIsEdge
                             ? t(
                                 'This Route uses edge TLS (cluster ingress cert). Paste it — e.g. openssl s_client -connect <host>:443 | openssl x509.',
                               )
-                            : t(
-                                'Required when the KBS URL is https://. Accepts a full PEM or the body.',
-                              )}
+                            : kbsServesHttps
+                              ? t(
+                                  'Required for an https:// KBS. Pin the CA (the secret’s ca.crt), not the leaf. Accepts a full PEM or the body.',
+                                )
+                              : t('Not needed — KBS serves plain HTTP. Leave blank.')}
                       </HelperTextItem>
                     </HelperText>
                   </FormHelperText>
