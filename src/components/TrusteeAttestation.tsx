@@ -1,5 +1,5 @@
 import type { FC, KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom-v5-compat';
 import { useTranslation } from 'react-i18next';
 import {
@@ -16,13 +16,6 @@ import {
   CardBody,
   ClipboardCopy,
   Content,
-  DataList,
-  DataListCell,
-  DataListContent,
-  DataListItem,
-  DataListItemCells,
-  DataListItemRow,
-  DataListToggle,
   EmptyState,
   EmptyStateActions,
   EmptyStateBody,
@@ -35,7 +28,7 @@ import {
   PageSection,
   Skeleton,
 } from '@patternfly/react-core';
-import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
+import { ExpandableRowContent, Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import {
   CheckCircleIcon,
   ExclamationCircleIcon,
@@ -541,97 +534,114 @@ const TrusteeAttestation: FC = () => {
                 </EmptyStateFooter>
               </EmptyState>
             ) : (
-              <DataList aria-label={t('Confidential workload attestation status')}>
-                {visibleRows.map(({ w, verdict }) => {
-                  const open = expanded.has(w.uid);
-                  const ev = evidenceByKey.get(`${w.namespace}/${w.name}`);
-                  return (
-                    <DataListItem key={w.uid} isExpanded={open}>
-                      <DataListItemRow>
-                        <DataListToggle
-                          id={`toggle-${w.uid}`}
-                          isExpanded={open}
-                          onClick={() => toggle(w.uid)}
-                          aria-label={t('Probe attestation')}
-                        />
-                        <DataListItemCells
-                          dataListCells={[
-                            <DataListCell key="wl" width={2}>
-                              <ResourceLink
-                                groupVersionKind={PodGVK}
-                                name={w.name}
-                                namespace={w.namespace}
-                                inline
-                              />
-                              <div className={`${PREFIX}__muted`}>
-                                {w.runtime}
-                                {w.gpu ? ' · GPU' : ''}
-                              </div>
-                            </DataListCell>,
-                            <DataListCell key="node">
-                              {w.nodeName ? (
-                                <>
-                                  {w.nodeName}
-                                  {teeShort(w.tee) ? ` · ${teeShort(w.tee)}` : ''}
-                                </>
-                              ) : (
-                                <span className={`${PREFIX}__muted`}>{t('unscheduled')}</span>
-                              )}
-                            </DataListCell>,
-                            <DataListCell key="init">
-                              {w.hasInitData ? (
-                                <Label color="blue" isCompact>
-                                  {t('initdata')}
-                                </Label>
-                              ) : (
-                                <Label color="orange" isCompact>
-                                  {t('no initdata')}
-                                </Label>
-                              )}
-                            </DataListCell>,
-                            <DataListCell key="verdict">
-                              <Label color={verdictColor(verdict)}>{verdictLabel(verdict)}</Label>
-                            </DataListCell>,
-                            <DataListCell key="evidence">
-                              {ev ? (
-                                <Label
-                                  color={
-                                    ev.verdict === 'passed'
-                                      ? 'green'
-                                      : ev.verdict === 'failed'
-                                        ? 'red'
-                                        : 'grey'
-                                  }
-                                  isCompact
-                                >
-                                  {ev.source === 'sidecar' ? t('live') : t('evidence')} ·{' '}
-                                  {ev.verdict} · {relativeTime(ev.timestamp)}
-                                </Label>
-                              ) : (
-                                <span className={`${PREFIX}__muted`}>{t('none')}</span>
-                              )}
-                            </DataListCell>,
-                          ]}
-                        />
-                      </DataListItemRow>
-                      <DataListContent
-                        aria-label={t('Attestation probe for {{name}}', { name: w.name })}
-                        isHidden={!open}
-                      >
-                        {open && (
-                          <ProbeDetail
-                            w={w}
-                            ctx={ctx}
-                            links={tabLinks}
-                            evidence={ev}
-                            cocoPresent={cocoPresent}
+              <Table aria-label={t('Confidential workload attestation status')} variant="compact">
+                <Thead>
+                  <Tr>
+                    <Th screenReaderText={t('Expand row')} />
+                    <Th>{t('Workload')}</Th>
+                    <Th>{t('Node')}</Th>
+                    <Th>{t('Initdata')}</Th>
+                    <Th>{t('Verdict')}</Th>
+                    <Th>{t('Evidence')}</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {visibleRows.map(({ w, verdict }, rowIndex) => {
+                    const open = expanded.has(w.uid);
+                    const ev = evidenceByKey.get(`${w.namespace}/${w.name}`);
+                    return (
+                      <Fragment key={w.uid}>
+                        <Tr>
+                          <Td
+                            expand={{
+                              rowIndex,
+                              isExpanded: open,
+                              onToggle: () => {
+                                toggle(w.uid);
+                              },
+                              expandId: `att-${w.uid}`,
+                            }}
                           />
-                        )}
-                      </DataListContent>
-                    </DataListItem>
-                  );
-                })}
-              </DataList>
+                          <Td dataLabel={t('Workload')}>
+                            <ResourceLink
+                              groupVersionKind={PodGVK}
+                              name={w.name}
+                              namespace={w.namespace}
+                              inline
+                            />
+                            <div className={`${PREFIX}__muted`}>
+                              {w.runtime}
+                              {w.gpu ? ' · GPU' : ''}
+                            </div>
+                          </Td>
+                          <Td dataLabel={t('Node')}>
+                            {w.nodeName ? (
+                              <>
+                                {w.nodeName}
+                                {teeShort(w.tee) ? ` · ${teeShort(w.tee)}` : ''}
+                              </>
+                            ) : (
+                              <span className={`${PREFIX}__muted`}>{t('unscheduled')}</span>
+                            )}
+                          </Td>
+                          <Td dataLabel={t('Initdata')}>
+                            {w.hasInitData ? (
+                              <Label color="blue" isCompact>
+                                {t('initdata')}
+                              </Label>
+                            ) : (
+                              <Label color="orange" isCompact>
+                                {t('no initdata')}
+                              </Label>
+                            )}
+                          </Td>
+                          <Td dataLabel={t('Verdict')}>
+                            <Label color={verdictColor(verdict)}>{verdictLabel(verdict)}</Label>
+                          </Td>
+                          <Td dataLabel={t('Evidence')}>
+                            {ev ? (
+                              <Label
+                                color={
+                                  ev.verdict === 'passed'
+                                    ? 'green'
+                                    : ev.verdict === 'failed'
+                                      ? 'red'
+                                      : 'grey'
+                                }
+                                isCompact
+                              >
+                                {ev.source === 'sidecar' ? t('live') : t('evidence')} · {ev.verdict}{' '}
+                                · {relativeTime(ev.timestamp)}
+                              </Label>
+                            ) : (
+                              <span className={`${PREFIX}__muted`}>{t('none')}</span>
+                            )}
+                          </Td>
+                        </Tr>
+                        <Tr isExpanded={open}>
+                          <Td />
+                          <Td
+                            dataLabel={t('Attestation probe for {{name}}', { name: w.name })}
+                            colSpan={5}
+                          >
+                            <ExpandableRowContent>
+                              {open && (
+                                <ProbeDetail
+                                  w={w}
+                                  ctx={ctx}
+                                  links={tabLinks}
+                                  evidence={ev}
+                                  cocoPresent={cocoPresent}
+                                />
+                              )}
+                            </ExpandableRowContent>
+                          </Td>
+                        </Tr>
+                      </Fragment>
+                    );
+                  })}
+                </Tbody>
+              </Table>
             )}
           </>
         )}
