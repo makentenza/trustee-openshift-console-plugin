@@ -1,6 +1,6 @@
 import type { FC, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Fragment, useMemo, useState } from 'react';
-import { Link } from 'react-router';
+import { Link } from 'react-router-dom-v5-compat';
 import { useTranslation } from 'react-i18next';
 import {
   DocumentTitle,
@@ -391,18 +391,15 @@ const TrusteeAttestation: FC = () => {
   }, [rows]);
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const toggle = (id: string) => {
+  const toggle = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
   const [filter, setFilter] = useState<Verdict | 'all'>('all');
-  const toggleFilter = (v: Verdict) => {
-    setFilter((f) => (f === v ? 'all' : v));
-  };
+  const toggleFilter = (v: Verdict) => setFilter((f) => (f === v ? 'all' : v));
   const visibleRows = filter === 'all' ? rows : rows.filter((r) => r.verdict === filter);
 
   // The TrusteeConfig watch decides which top-level branch to render (no
@@ -485,9 +482,7 @@ const TrusteeAttestation: FC = () => {
                 <StatTile
                   value={counts.total}
                   label={t('Confidential workloads')}
-                  onClick={() => {
-                    setFilter('all');
-                  }}
+                  onClick={() => setFilter('all')}
                   active={filter === 'all'}
                   loading={statsLoading}
                 />
@@ -496,9 +491,7 @@ const TrusteeAttestation: FC = () => {
                 <StatTile
                   value={counts.healthy}
                   label={t('Healthy')}
-                  onClick={() => {
-                    toggleFilter('healthy');
-                  }}
+                  onClick={() => toggleFilter('healthy')}
                   active={filter === 'healthy'}
                   loading={statsLoading}
                 />
@@ -507,9 +500,7 @@ const TrusteeAttestation: FC = () => {
                 <StatTile
                   value={counts.failing}
                   label={t('Failing')}
-                  onClick={() => {
-                    toggleFilter('failing');
-                  }}
+                  onClick={() => toggleFilter('failing')}
                   active={filter === 'failing'}
                   loading={statsLoading}
                 />
@@ -518,9 +509,7 @@ const TrusteeAttestation: FC = () => {
                 <StatTile
                   value={counts.noatt}
                   label={t('Not attesting')}
-                  onClick={() => {
-                    toggleFilter('no-attestation');
-                  }}
+                  onClick={() => toggleFilter('no-attestation')}
                   active={filter === 'no-attestation'}
                   loading={statsLoading}
                 />
