@@ -57,9 +57,12 @@ export interface TopoCluster {
 
 // ---- classification helpers ----
 
-/** A confidential-containers pod runs on the kata-cc family of runtime classes. */
+/**
+ * A CoCo workload runs on the kata-cc family (bare-metal TEE) OR kata-remote
+ * (cloud peer-pod). Both are shown in the attestation view.
+ */
 export const isConfidentialRuntimeName = (name?: string): boolean =>
-  !!name && name.startsWith('kata-cc');
+  !!name && (name.startsWith('kata-cc') || name === 'kata-remote');
 
 export const teeTypeForNode = (node?: NodeKind): TeeType => {
   const labels = node?.metadata?.labels ?? {};

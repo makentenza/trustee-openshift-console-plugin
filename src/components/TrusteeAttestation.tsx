@@ -534,7 +534,7 @@ const TrusteeAttestation: FC = () => {
                 <CardBody>
                   <span className={`${PREFIX}__muted`}>
                     {t(
-                      'No confidential workloads found in this cluster. Deploy a pod on the kata-cc runtime to see its attestation status here.',
+                      'No confidential workloads found in this cluster. Deploy a pod on the kata-cc (bare-metal TEE) or kata-remote (cloud peer-pod) runtime to see its attestation status here.',
                     )}
                   </span>
                 </CardBody>
