@@ -69,6 +69,21 @@ export const parseKbsLog = (text: string): KbsLogEntry[] => {
   return out;
 };
 
+/**
+ * Is a KBS access-log client a REMOTE confidential workload (in another cluster),
+ * rather than one co-located on this cluster?
+ *
+ * Co-located workloads reach the KBS through the in-cluster Service, so the access
+ * log records their own pod IP. Remote spokes reach it through the hub's external
+ * Route, so the log records the hub ROUTER pod's IP — which is ALSO a cluster
+ * (10.x) address. An earlier "is the IP non-10.x?" test therefore dropped every
+ * real spoke, since Route traffic always looks in-cluster. We instead classify by
+ * exclusion: a client is remote when it is not loopback and not one of this
+ * cluster's confidential-workload pod IPs.
+ */
+export const isRemoteClient = (ip: string | undefined, localPodIps: ReadonlySet<string>): boolean =>
+  !!ip && ip !== '127.0.0.1' && !ip.startsWith('::1') && !localPodIps.has(ip);
+
 export const kindLabel = (e: KbsLogEntry): string => {
   switch (e.kind) {
     case 'attest':

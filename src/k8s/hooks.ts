@@ -14,7 +14,7 @@ import {
   TrusteeConfigGVK,
 } from './resources';
 import type { KbsConfigKind, NamespaceKind, PodKind, TrusteeConfigKind } from './types';
-import { parseKbsLog } from '../utils/kbsLog';
+import { isRemoteClient, parseKbsLog } from '../utils/kbsLog';
 
 /** Console "All Projects" sentinel (ALL_NAMESPACES_KEY). */
 const ALL_NAMESPACES = '#ALL_NS#';
@@ -73,20 +73,21 @@ export interface RemoteSpoke {
   resources: { path: string; released: boolean }[];
 }
 
-// A client is "remote" if it isn't on this cluster's pod network (10.x) or
-// loopback — i.e. it reached the KBS over the external Route/LoadBalancer.
-const isRemoteClient = (ip?: string): boolean =>
-  !!ip && !ip.startsWith('10.') && ip !== '127.0.0.1' && !ip.startsWith('::1');
-
 /**
  * Remote confidential workloads (in OTHER clusters) that attested to this Trustee,
  * grouped by source IP — parsed from the KBS container log, since the console
  * cannot watch remote-cluster pods. A released secret counts as proof of
  * attestation (the KBS only releases after a valid token). Returns the grouped
  * spokes plus a manual refresh.
+ *
+ * `localPodIps` are the IPs of confidential workloads co-located on THIS cluster, so
+ * remote-spoke detection can exclude them: co-located workloads hit the in-cluster
+ * Service (own pod IP), whereas remote spokes traverse the hub Route and appear as
+ * the cluster router's IP. See isRemoteClient.
  */
 export const useRemoteAttestations = (
   hubNs: string,
+  localPodIps: readonly string[] = [],
 ): {
   spokes: RemoteSpoke[];
   loading: boolean;
@@ -110,16 +111,22 @@ export const useRemoteAttestations = (
   const [error, setError] = useState<string | undefined>();
   const [fetchedAt, setFetchedAt] = useState<string | undefined>();
 
+  // Stable dependency key (value-equal across renders) so the effect doesn't refetch
+  // the KBS log on every render — a fresh array identity each render would otherwise
+  // loop. The Set of local pod IPs is rebuilt from this key inside the callback.
+  const localIpsKey = [...localPodIps].sort((a, b) => a.localeCompare(b)).join(',');
   const fetchLogs = useCallback(async () => {
     if (!kbsPod) return;
     setLoading(true);
     setError(undefined);
     try {
+      const localIps = new Set(localIpsKey ? localIpsKey.split(',') : []);
       const url = `/api/kubernetes/api/v1/namespaces/${hubNs}/pods/${kbsPod}/log?container=kbs&tailLines=5000`;
       const text = await consoleFetchText(url);
       const byIp = new Map<string, RemoteSpoke>();
       for (const e of parseKbsLog(text)) {
-        if ((e.kind !== 'attest' && e.kind !== 'resource') || !isRemoteClient(e.clientIp)) continue;
+        if ((e.kind !== 'attest' && e.kind !== 'resource') || !isRemoteClient(e.clientIp, localIps))
+          continue;
         if (!e.clientIp) continue;
         const ip = e.clientIp;
         const s = byIp.get(ip) ?? {
@@ -159,7 +166,7 @@ export const useRemoteAttestations = (
     } finally {
       setLoading(false);
     }
-  }, [kbsPod, hubNs]);
+  }, [kbsPod, hubNs, localIpsKey]);
 
   useEffect(() => {
     // Fetch-on-mount of external data (the KBS log); setState runs after the async
