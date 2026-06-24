@@ -38,6 +38,8 @@ export interface AttestWorkload {
 export interface AttestContext {
   kbsReady: boolean;
   referenceValuesPresent: boolean;
+  /** Trustee is configured in Permissive profile — all TEE measurements pass without registered reference values. */
+  permissiveMode: boolean;
 }
 
 export type CheckState = 'ok' | 'warn' | 'fail' | 'unknown';
@@ -170,10 +172,16 @@ export const buildChecks = (w: AttestWorkload, ctx: AttestContext): Check[] => [
   {
     id: 'refvals',
     label: 'Reference values',
-    state: ctx.referenceValuesPresent ? 'ok' : 'warn',
-    detail: ctx.referenceValuesPresent
-      ? 'Registered in Trustee'
-      : 'None registered — attestation is rejected until you add them',
+    state:
+      ctx.referenceValuesPresent ? 'ok'
+      : ctx.permissiveMode ? 'ok'   // permissive policy: any measurement passes
+      : 'warn',
+    detail:
+      ctx.referenceValuesPresent
+        ? 'Registered in Trustee'
+        : ctx.permissiveMode
+          ? 'None registered — Trustee is in permissive mode (dev/test); all measurements accepted'
+          : 'None registered — attestation is rejected until you add them',
   },
   {
     id: 'pod',

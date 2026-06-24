@@ -59,6 +59,12 @@ export interface SetupInputs {
   initdataRegistered: boolean;
   /** An external Route to the KBS Service has been admitted (hub-and-spoke). */
   routeAdmitted: boolean;
+  /**
+   * Trustee is configured in Permissive profile — all TEE measurements are
+   * accepted without registered reference values (suitable for dev/test).
+   * When true, missing reference values are informational, not blocking.
+   */
+  permissiveMode?: boolean;
 }
 
 /**
@@ -74,8 +80,17 @@ export const buildSetupSteps = (i: SetupInputs): SetupStep[] => {
     { id: 'kbs', required: true, state: !started ? 'todo' : i.kbsReady ? 'ok' : 'pending' },
     {
       id: 'reference-values',
-      required: true,
-      state: !started ? 'todo' : i.refValuesSet ? 'ok' : 'attention',
+      // In permissive mode, missing reference values are informational only —
+      // Trustee accepts any TEE measurement. Mark as 'ok' so the checklist
+      // stays green for dev/test deployments without blocking production usage.
+      required: !i.permissiveMode,
+      state: !started
+        ? 'todo'
+        : i.refValuesSet
+          ? 'ok'
+          : i.permissiveMode
+            ? 'ok'
+            : 'attention',
       tab: 'reference-values',
     },
     // Initdata carries the KBS endpoint + Kata Agent policy into each confidential pod

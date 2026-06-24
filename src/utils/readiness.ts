@@ -55,6 +55,10 @@ const rvpsPresent = (cm?: ConfigMapKind): boolean => {
  * (hub-and-spoke). We keep it a warning either way — an in-cluster-only Trustee is
  * valid — but the detail text nudges toward a Route when sharing across clusters.
  */
+/** True when the TrusteeConfig uses the Permissive profile (dev/test default). */
+export const isPermissiveProfile = (tc?: TrusteeConfigKind): boolean =>
+  !tc?.spec?.profileType || tc.spec.profileType === 'Permissive';
+
 export const buildReadiness = (
   args: {
     tc?: TrusteeConfigKind;
@@ -70,9 +74,11 @@ export const buildReadiness = (
     routeMissing: string;
     refvalsPresent: string;
     refvalsMissing: string;
+    refvalsPermissive?: string;
   },
 ): ReadinessCheck[] => {
   const { tc, routes, rvpsCm } = args;
+  const permissive = isPermissiveProfile(tc);
 
   const reconciled = tcReconciled(tc);
   const condDetail = tcConditionDetail(tc);
@@ -110,8 +116,13 @@ export const buildReadiness = (
     {
       id: 'refvals',
       label: 'Reference values',
-      state: refPresent ? 'ok' : 'warn',
-      detail: refPresent ? labels.refvalsPresent : labels.refvalsMissing,
+      state: refPresent ? 'ok' : permissive ? 'ok' : 'warn',
+      detail: refPresent
+        ? labels.refvalsPresent
+        : permissive
+          ? (labels.refvalsPermissive ??
+              'None registered — Trustee is in permissive mode; all measurements accepted')
+          : labels.refvalsMissing,
     },
   ];
 };

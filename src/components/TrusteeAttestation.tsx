@@ -1,6 +1,6 @@
 import type { FC, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Fragment, useMemo, useState } from 'react';
-import { Link } from 'react-router';
+import { Link } from 'react-router-dom-v5-compat';
 import { useTranslation } from 'react-i18next';
 import {
   DocumentTitle,
@@ -368,9 +368,11 @@ const TrusteeAttestation: FC = () => {
     return m;
   }, [evidenceCms]);
 
+  const permissiveMode = !primaryTc?.spec?.profileType || primaryTc.spec.profileType === 'Permissive';
+
   const ctx: AttestContext = useMemo(
-    () => ({ kbsReady, referenceValuesPresent: refPresent }),
-    [kbsReady, refPresent],
+    () => ({ kbsReady, referenceValuesPresent: refPresent, permissiveMode }),
+    [kbsReady, refPresent, permissiveMode],
   );
   const workloads = useMemo(() => buildAttestWorkloads(pods ?? [], nodes ?? []), [pods, nodes]);
   const rows = useMemo(
@@ -389,18 +391,15 @@ const TrusteeAttestation: FC = () => {
   }, [rows]);
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const toggle = (id: string) => {
+  const toggle = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
   const [filter, setFilter] = useState<Verdict | 'all'>('all');
-  const toggleFilter = (v: Verdict) => {
-    setFilter((f) => (f === v ? 'all' : v));
-  };
+  const toggleFilter = (v: Verdict) => setFilter((f) => (f === v ? 'all' : v));
   const visibleRows = filter === 'all' ? rows : rows.filter((r) => r.verdict === filter);
 
   // The TrusteeConfig watch decides which top-level branch to render (no
@@ -451,7 +450,20 @@ const TrusteeAttestation: FC = () => {
                 <Link to={healthPath}>{t('Check Trustee health')}</Link>
               </Alert>
             )}
-            {kbsReady && !refPresent && (
+            {kbsReady && !refPresent && permissiveMode && (
+              <Alert
+                variant="info"
+                isInline
+                title={t('Trustee is running in permissive mode (dev/test)')}
+                className={`${PREFIX}__mb`}
+              >
+                {t(
+                  'No attestation reference values are registered. Trustee is in permissive mode \u2014 all TEE measurements are accepted. For production, switch to Restricted profile and register reference values.',
+                )}{' '}
+                <Link to={refValuesPath}>{t('Open reference values')}</Link>
+              </Alert>
+            )}
+            {kbsReady && !refPresent && !permissiveMode && (
               <Alert
                 variant="warning"
                 isInline
@@ -459,7 +471,7 @@ const TrusteeAttestation: FC = () => {
                 className={`${PREFIX}__mb`}
               >
                 {t(
-                  'Trustee rejects attestation until reference values (RVPS) are registered. Generate them from a TrusteeConfig, or add the PCR8 a workload’s initdata produces.',
+                  'Trustee rejects attestation until reference values (RVPS) are registered. Generate them from a TrusteeConfig, or add the PCR8 a workload\u2019s initdata produces.',
                 )}{' '}
                 <Link to={refValuesPath}>{t('Open reference values')}</Link>
               </Alert>
@@ -470,9 +482,7 @@ const TrusteeAttestation: FC = () => {
                 <StatTile
                   value={counts.total}
                   label={t('Confidential workloads')}
-                  onClick={() => {
-                    setFilter('all');
-                  }}
+                  onClick={() => setFilter('all')}
                   active={filter === 'all'}
                   loading={statsLoading}
                 />
@@ -481,9 +491,7 @@ const TrusteeAttestation: FC = () => {
                 <StatTile
                   value={counts.healthy}
                   label={t('Healthy')}
-                  onClick={() => {
-                    toggleFilter('healthy');
-                  }}
+                  onClick={() => toggleFilter('healthy')}
                   active={filter === 'healthy'}
                   loading={statsLoading}
                 />
@@ -492,9 +500,7 @@ const TrusteeAttestation: FC = () => {
                 <StatTile
                   value={counts.failing}
                   label={t('Failing')}
-                  onClick={() => {
-                    toggleFilter('failing');
-                  }}
+                  onClick={() => toggleFilter('failing')}
                   active={filter === 'failing'}
                   loading={statsLoading}
                 />
@@ -503,9 +509,7 @@ const TrusteeAttestation: FC = () => {
                 <StatTile
                   value={counts.noatt}
                   label={t('Not attesting')}
-                  onClick={() => {
-                    toggleFilter('no-attestation');
-                  }}
+                  onClick={() => toggleFilter('no-attestation')}
                   active={filter === 'no-attestation'}
                   loading={statsLoading}
                 />
@@ -519,7 +523,7 @@ const TrusteeAttestation: FC = () => {
                 <CardBody>
                   <span className={`${PREFIX}__muted`}>
                     {t(
-                      'No confidential workloads found in this cluster. Deploy a pod on the kata-cc runtime to see its attestation status here.',
+                      'No confidential workloads found in this cluster. Deploy a pod on the kata-cc (bare-metal TEE) or kata-remote (cloud peer-pod) runtime to see its attestation status here.',
                     )}
                   </span>
                 </CardBody>
