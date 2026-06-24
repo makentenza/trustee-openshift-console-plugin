@@ -165,6 +165,18 @@ const TrusteeTopology: FC = () => {
   }, [routes]);
   const remoteEndpoint = routeHost ? `https://${routeHost}` : '';
 
+  // Co-located confidential workloads hit the in-cluster KBS Service directly, so the
+  // KBS access log records their own pod IP. Passing these lets remote-spoke detection
+  // tell them apart from Route traffic (which arrives as the cluster router's IP).
+  const localConfidentialPodIps = useMemo(
+    () =>
+      (pods ?? [])
+        .filter((p) => isConfidentialRuntimeName(p.spec?.runtimeClassName))
+        .map((p) => p.status?.podIP)
+        .filter(Boolean) as string[],
+    [pods],
+  );
+
   // Remote confidential workloads (in other clusters) that attested to this
   // Trustee, read from the KBS log — the spoke side the console can't watch.
   const {
@@ -173,7 +185,7 @@ const TrusteeTopology: FC = () => {
     error: spokesError,
     fetchedAt,
     refresh,
-  } = useRemoteAttestations(hubNs);
+  } = useRemoteAttestations(hubNs, localConfidentialPodIps);
 
   const layout = useMemo(
     () =>
@@ -401,7 +413,7 @@ const TrusteeTopology: FC = () => {
               </Content>
               <Content component="p">
                 {t(
-                  'One Trustee can attest workloads across many clusters (hub-and-spoke). This view shows the workloads running in the current cluster, and which Trustee each one actually attests to (read from its initdata): a solid box marked “↳ attests here” targets this Trustee; a dashed box marked “↗ …” attests to a remote Trustee and is NOT verified here; “no initdata” means it does not attest at all. Remote spoke clusters reach this Trustee over the network through its external Route (shown below) — the in-cluster Service DNS only works for co-located workloads.',
+                  'One Trustee can attest workloads across many clusters (hub-and-spoke). This view shows the workloads running in the current cluster, and which Trustee each one actually attests to (read from its initdata): a solid box marked “↳ attests here” targets this Trustee; a dashed box marked “↗ …” attests to a remote Trustee and is NOT verified here; “no initdata” means it does not attest at all. Remote spoke clusters reach this Trustee over the network through its external Route (shown below) — the in-cluster Service DNS only works for co-located workloads. Because spokes connect through the Route, the KBS records the cluster router’s address as the source, so remote attestations are grouped by that source IP rather than per workload; the released resources show what each attested.',
                 )}
               </Content>
             </Alert>
