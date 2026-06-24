@@ -194,3 +194,44 @@ export const buildInitdata = async (input: InitdataInput): Promise<InitdataResul
   ]);
   return { toml, annotation, pcr8 };
 };
+
+export interface WorkloadPodYamlInput {
+  /** gzip+base64 cc_init_data annotation value (required). */
+  annotation: string;
+  /** Source TrusteeConfig name, for the comment header. */
+  source?: string;
+  /** KBS endpoint baked into the initdata. */
+  kbsUrl?: string;
+  /** init_data measurement registered in the Trustee's reference values. */
+  pcr8?: string;
+  /** Pod name to scaffold. */
+  podName?: string;
+}
+
+/**
+ * Sample confidential Pod YAML carrying the cc_init_data annotation — what the
+ * Initdata tab offers for download, both right after generating and later from the
+ * "Saved initdata" list, so the value is the same regardless of where it's grabbed.
+ */
+export const buildWorkloadPodYaml = (input: WorkloadPodYamlInput): string => {
+  const { annotation, source, kbsUrl, pcr8, podName = 'my-confidential-workload' } = input;
+  return [
+    `# Confidential workload initdata${source ? ` — authored by Trustee (${source})` : ''}`,
+    ...(kbsUrl ? [`# KBS endpoint: ${kbsUrl}`] : []),
+    ...(pcr8 ? [`# PCR8 (registered in this Trustee's reference values): ${pcr8}`] : []),
+    '#',
+    '# Put the annotation below on your confidential Pod, then deploy it.',
+    'apiVersion: v1',
+    'kind: Pod',
+    'metadata:',
+    `  name: ${podName}`,
+    '  annotations:',
+    `    io.katacontainers.config.hypervisor.cc_init_data: "${annotation}"`,
+    'spec:',
+    '  runtimeClassName: kata-cc',
+    '  containers:',
+    '    - name: app',
+    '      image: <your-image>',
+    '',
+  ].join('\n');
+};

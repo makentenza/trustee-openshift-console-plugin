@@ -234,6 +234,11 @@ export const INITDATA_REFERENCE_VALUE_NAME = 'init_data';
 /** ConfigMap (<tc>-shared-initdata) + label for initdata shared with the workload owner. */
 export const SHARED_INITDATA_CM_SUFFIX = '-shared-initdata';
 export const SHARED_INITDATA_LABEL = 'trustee.attestation/shared-initdata';
+// Data keys on a shared-initdata ConfigMap (single source of truth for the writer and
+// the "Saved initdata" reader). The CoCo plugin reads the same keys.
+export const SHARED_INITDATA_DATA_KEY = 'cc_init_data';
+export const SHARED_INITDATA_KBS_URL_KEY = 'kbs-url';
+export const SHARED_INITDATA_PCR8_KEY = 'pcr8';
 /** Label on the evidence ConfigMaps the CoCo sidecar writes and Trustee reads. */
 export const EVIDENCE_LABEL = 'trustee.attestation/evidence';
 /**
