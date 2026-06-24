@@ -1,4 +1,4 @@
-import { buildInitdataToml, type InitdataInput } from './initdata';
+import { buildInitdataToml, buildWorkloadPodYaml, type InitdataInput } from './initdata';
 
 const base: InitdataInput = {
   trusteeUrl: 'https://kbs.example.com',
@@ -57,5 +57,29 @@ describe('buildInitdataToml', () => {
     const cdh = section(toml, '"cdh.toml"', '"policy.rego"');
     expect(aa).not.toContain('[image]');
     expect(cdh).toContain('[image]');
+  });
+});
+
+describe('buildWorkloadPodYaml', () => {
+  it('embeds the annotation and a kata-cc pod scaffold', () => {
+    const y = buildWorkloadPodYaml({
+      annotation: 'H4sIabc',
+      source: 'tc',
+      kbsUrl: 'http://kbs',
+      pcr8: 'deadbeef',
+    });
+    expect(y).toContain('io.katacontainers.config.hypervisor.cc_init_data: "H4sIabc"');
+    expect(y).toContain('runtimeClassName: kata-cc');
+    expect(y).toContain('# KBS endpoint: http://kbs');
+    expect(y).toContain('# PCR8 (registered in this Trustee'); // header carries pcr8
+    expect(y).toContain('authored by Trustee (tc)');
+  });
+
+  it('omits the optional comment lines when only the annotation is given', () => {
+    const y = buildWorkloadPodYaml({ annotation: 'X' });
+    expect(y).toContain('cc_init_data: "X"');
+    expect(y).not.toContain('# KBS endpoint:');
+    expect(y).not.toContain('# PCR8');
+    expect(y).toContain('name: my-confidential-workload');
   });
 });

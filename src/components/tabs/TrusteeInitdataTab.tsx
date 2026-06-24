@@ -47,17 +47,22 @@ import {
   RouteModel,
   SHARED_CONFIGMAP_SCHEMA_VERSION,
   SHARED_INITDATA_CM_SUFFIX,
+  SHARED_INITDATA_DATA_KEY,
+  SHARED_INITDATA_KBS_URL_KEY,
   SHARED_INITDATA_LABEL,
+  SHARED_INITDATA_PCR8_KEY,
   SecretGVK,
 } from '../../k8s/resources';
 import type { ConfigMapKind, DeploymentKind, RouteKind, SecretKind } from '../../k8s/types';
 import {
   buildInitdata,
+  buildWorkloadPodYaml,
   SENSITIVE_REQUESTS,
   type HashAlgo,
   type InitdataResult,
   type SensitiveRequest,
 } from '../../utils/initdata';
+import { SavedInitdataPanel } from './SavedInitdataPanel';
 import {
   buildKbsHttpRoute,
   buildKbsPassthroughRoute,
@@ -361,9 +366,9 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
         // Stamp the cross-plugin contract version so a reader (the CoCo plugin)
         // can detect operator skew instead of misparsing. See AGENTS.md.
         schema: SHARED_CONFIGMAP_SCHEMA_VERSION,
-        cc_init_data: result.annotation,
-        'kbs-url': trusteeUrl.trim(),
-        pcr8: result.pcr8,
+        [SHARED_INITDATA_DATA_KEY]: result.annotation,
+        [SHARED_INITDATA_KBS_URL_KEY]: trusteeUrl.trim(),
+        [SHARED_INITDATA_PCR8_KEY]: result.pcr8,
         README: t(
           'Share with the confidential-workload owner. Set cc_init_data as the io.katacontainers.config.hypervisor.cc_init_data annotation on the Pod (runtimeClassName: kata-cc).',
         ),
@@ -384,23 +389,12 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
 
   const download = () => {
     if (!result) return;
-    const content = `# Confidential workload initdata — authored by Trustee (${name})
-# KBS endpoint: ${trusteeUrl.trim()}
-# PCR8 (registered in this Trustee's reference values): ${result.pcr8}
-#
-# Put the annotation below on your confidential Pod, then deploy it.
-apiVersion: v1
-kind: Pod
-metadata:
-  name: my-confidential-workload
-  annotations:
-    io.katacontainers.config.hypervisor.cc_init_data: "${result.annotation}"
-spec:
-  runtimeClassName: kata-cc
-  containers:
-    - name: app
-      image: <your-image>
-`;
+    const content = buildWorkloadPodYaml({
+      source: name,
+      kbsUrl: trusteeUrl.trim(),
+      pcr8: result.pcr8,
+      annotation: result.annotation,
+    });
     const url = URL.createObjectURL(new Blob([content], { type: 'application/yaml' }));
     const a = document.createElement('a');
     a.href = url;
@@ -775,6 +769,10 @@ spec:
           </Card>
         </GridItem>
       </Grid>
+
+      <div className={`${PREFIX}__mt`}>
+        <SavedInitdataPanel namespace={namespace} />
+      </div>
     </PageSection>
   );
 };
