@@ -48,7 +48,6 @@ import { useTrusteeConfigs } from '../k8s/hooks';
 import {
   ConfigMapGVK,
   DeploymentGVK,
-  INITDATA_REFERENCE_VALUE_NAME,
   IngressConfigGVK,
   RouteGVK,
   TRUSTEE_KBS_DEPLOYMENT,
@@ -60,6 +59,7 @@ import {
 } from '../k8s/resources';
 import type { ConfigMapKind, DeploymentKind, RouteKind, TrusteeConfigKind } from '../k8s/types';
 import { findKbsRoute } from '../utils/readiness';
+import { INITDATA_REFVAL_NAMES } from '../utils/initdata';
 import {
   buildSetupSteps,
   requiredStepsReady,
@@ -231,9 +231,10 @@ const DeployTrusteeWizard: FC = () => {
   const kbsUp = (kbsDeploy?.status?.readyReplicas ?? 0) > 0 || tcReady;
   const rv = (rvpsCm?.data?.['reference-values.json'] ?? '').trim();
   const refValuesSet = tcCreated && rv !== '' && rv !== '[]' && rv !== '{}';
-  // The Initdata tab registers the pod-config measurement under the reserved
-  // "init_data" name in RVPS — its presence means initdata is wired for attestation.
-  const initdataRegistered = rv.includes(INITDATA_REFERENCE_VALUE_NAME);
+  // The Initdata tab registers the pod-config measurement under a platform-appropriate
+  // RVPS name — init_data on bare-metal TDX, pcr08 on cloud peer pods — so detect either
+  // so a cloud-only deployment isn't shown as "initdata not registered".
+  const initdataRegistered = INITDATA_REFVAL_NAMES.some((n) => rv.includes(n));
   const controllerRunning = (operatorDeploy?.status?.readyReplicas ?? 0) > 0;
   const route = findKbsRoute(routes ?? []);
   const routeAdmitted = !!route && (route.status?.ingress ?? []).some((ing) => !!ing.host);

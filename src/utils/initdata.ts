@@ -76,6 +76,15 @@ export const MEASUREMENT_PLATFORMS: Record<MeasurementPlatform, PlatformMeta> = 
 
 export const PLATFORM_ORDER: MeasurementPlatform[] = ['tdx-baremetal', 'snp-cloud', 'tdx-cloud'];
 
+/**
+ * The default RVPS reference-value names the initdata measurement may be registered under
+ * across platforms (init_data for bare-metal TDX, pcr08 for cloud peer pods). Used to detect
+ * "initdata is registered" regardless of environment, without assuming the bare-metal name.
+ */
+export const INITDATA_REFVAL_NAMES: string[] = Array.from(
+  new Set(PLATFORM_ORDER.map((p) => MEASUREMENT_PLATFORMS[p].refvalName)),
+);
+
 /** Kata Agent policy requests, in the order the doc lists them, with the permissive defaults. */
 export const POLICY_DEFAULTS: ReadonlyArray<readonly [string, boolean]> = [
   ['AddARPNeighborsRequest', true],
