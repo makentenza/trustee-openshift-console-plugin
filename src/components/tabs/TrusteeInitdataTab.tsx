@@ -38,7 +38,6 @@ import {
   ConfigMapGVK,
   ConfigMapModel,
   DeploymentModel,
-  INITDATA_REFERENCE_VALUE_NAME,
   KBS_SERVICE_NAME,
   KBS_SERVICE_PORT,
   RVPS_REFERENCE_VALUES_KEY,
@@ -51,15 +50,18 @@ import {
   SHARED_INITDATA_KBS_URL_KEY,
   SHARED_INITDATA_LABEL,
   SHARED_INITDATA_PCR8_KEY,
+  SHARED_INITDATA_PLATFORM_KEY,
   SecretGVK,
 } from '../../k8s/resources';
 import type { ConfigMapKind, DeploymentKind, RouteKind, SecretKind } from '../../k8s/types';
 import {
   buildInitdata,
   buildWorkloadPodYaml,
+  MEASUREMENT_PLATFORMS,
+  PLATFORM_ORDER,
   SENSITIVE_REQUESTS,
-  type HashAlgo,
   type InitdataResult,
+  type MeasurementPlatform,
   type SensitiveRequest,
 } from '../../utils/initdata';
 import { SavedInitdataPanel } from './SavedInitdataPanel';
@@ -165,7 +167,15 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
   const [trusteeUrl, setTrusteeUrl] = useState('');
   const [urlTouched, setUrlTouched] = useState(false);
   const sharingInClusterUrl = isInClusterKbsUrl(trusteeUrl);
-  const [algorithm, setAlgorithm] = useState<HashAlgo>('sha256');
+  // Where the workload runs — bare-metal TDX (kata-cc) vs cloud peer pods (kata-remote,
+  // Azure SEV-SNP or TDX). Decides the runtime class, the measurement (MRCONFIGID vs vTPM
+  // PCR 8) and the RVPS reference-value name. User-selected because the workload may run on
+  // a different (e.g. spoke) cluster than the one Trustee runs on.
+  const [platform, setPlatform] = useState<MeasurementPlatform>('tdx-baremetal');
+  // RVPS reference-value name the measurement is registered under; defaults per platform but
+  // stays editable — the exact cloud vTPM PCR-8 key can vary by Trustee policy.
+  const [refvalName, setRefvalName] = useState(MEASUREMENT_PLATFORMS['tdx-baremetal'].refvalName);
+  const [refvalTouched, setRefvalTouched] = useState(false);
   const [kbsCert, setKbsCert] = useState('');
   const [certTouched, setCertTouched] = useState(false);
   const [allow, setAllow] = useState<Record<SensitiveRequest, boolean>>(DEFAULT_ALLOW);
@@ -192,12 +202,15 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
     setKbsCert(kbsServesHttps && autoCert ? autoCert : '');
   }, [autoCert, certTouched, kbsServesHttps]);
 
+  // Track the platform's default reference-value name until the user overrides it.
+  useEffect(() => {
+    if (refvalTouched) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRefvalName(MEASUREMENT_PLATFORMS[platform].refvalName);
+  }, [platform, refvalTouched]);
+
   const requestHelp: Record<SensitiveRequest, string> = {
     ExecProcessRequest: t('Allow oc/kubectl exec into the confidential VM (recommended off).'),
-    ReadStreamRequest: t('Allow reading container stdout/stderr streams (recommended off).'),
-    WriteStreamRequest: t('Allow writing to container stdin (recommended off).'),
-    SetPolicyRequest: t('Allow replacing the Kata Agent policy at runtime (recommended off).'),
-    PullImageRequest: t('Allow the guest to pull container images.'),
   };
 
   const generate = async () => {
@@ -209,7 +222,7 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
       setResult(
         await buildInitdata({
           trusteeUrl: trusteeUrl.trim(),
-          algorithm,
+          platform,
           kbsCert: kbsCert.trim() || undefined,
           policyOverrides: allow,
         }),
@@ -293,10 +306,13 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
   const addToReferenceValues = async () => {
     if (!result || !name) return;
     setRvStatus('');
+    // Register under the platform-appropriate reference-value name: init_data for bare-metal
+    // TDX, the vTPM PCR-8 name for cloud peer pods (#21). The name is user-editable.
+    const rvName = refvalName.trim() || MEASUREMENT_PLATFORMS[result.platform].refvalName;
     const entry = {
-      name: INITDATA_REFERENCE_VALUE_NAME,
+      name: rvName,
       expiration: '2099-12-31T00:00:00Z',
-      value: [result.pcr8],
+      value: [result.measurement],
     };
     try {
       let cm: ConfigMapKind | undefined;
@@ -333,7 +349,7 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
       } catch {
         arr = [];
       }
-      const idx = arr.findIndex((e) => e?.name === INITDATA_REFERENCE_VALUE_NAME);
+      const idx = arr.findIndex((e) => e?.name === rvName);
       if (idx >= 0) arr[idx] = entry;
       else arr.push(entry);
       // `add` (not `replace`) so it works whether or not the key already exists.
@@ -368,9 +384,11 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
         schema: SHARED_CONFIGMAP_SCHEMA_VERSION,
         [SHARED_INITDATA_DATA_KEY]: result.annotation,
         [SHARED_INITDATA_KBS_URL_KEY]: trusteeUrl.trim(),
-        [SHARED_INITDATA_PCR8_KEY]: result.pcr8,
+        [SHARED_INITDATA_PCR8_KEY]: result.measurement,
+        [SHARED_INITDATA_PLATFORM_KEY]: result.platform,
         README: t(
-          'Share with the confidential-workload owner. Set cc_init_data as the io.katacontainers.config.hypervisor.cc_init_data annotation on the Pod (runtimeClassName: kata-cc).',
+          'Share with the confidential-workload owner. Set cc_init_data as the io.katacontainers.config.hypervisor.cc_init_data annotation on the Pod (runtimeClassName: {{runtimeClass}}).',
+          { runtimeClass: MEASUREMENT_PLATFORMS[result.platform].runtimeClass },
         ),
       },
     };
@@ -392,7 +410,8 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
     const content = buildWorkloadPodYaml({
       source: name,
       kbsUrl: trusteeUrl.trim(),
-      pcr8: result.pcr8,
+      measurement: result.measurement,
+      platform: result.platform,
       annotation: result.annotation,
     });
     const url = URL.createObjectURL(new Blob([content], { type: 'application/yaml' }));
@@ -422,7 +441,7 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
         className={`${PREFIX}__mb`}
       >
         {t(
-          'Initdata tells a confidential pod how to reach this Trustee and constrains the Kata agent. It is measured into PCR8, so its measurement must be registered in this Trustee’s reference values. Generate it here, click “Add to reference values”, then share the annotation with whoever creates the workload (works whether the workload runs in this cluster or a remote one).',
+          'Initdata tells a confidential pod how to reach this Trustee and constrains the Kata agent. Its digest is measured — into the TDX init_data register on bare metal, or the guest vTPM PCR 8 on cloud peer pods — so it must be registered in this Trustee’s reference values. Pick the workload platform, generate here, click “Add to reference values”, then share the annotation with whoever creates the workload (works whether it runs in this cluster or a remote one).',
         )}
       </Alert>
 
@@ -614,18 +633,31 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
                   </FormHelperText>
                 </FormGroup>
 
-                <FormGroup label={t('Measurement algorithm')} fieldId="id-algo">
+                <FormGroup label={t('Workload platform')} fieldId="id-platform">
                   <FormSelect
-                    id="id-algo"
-                    value={algorithm}
+                    id="id-platform"
+                    value={platform}
                     onChange={(_e, v) => {
-                      setAlgorithm(v as HashAlgo);
+                      setPlatform(v as MeasurementPlatform);
                     }}
                   >
-                    <FormSelectOption value="sha256" label="sha256" />
-                    <FormSelectOption value="sha384" label="sha384" />
-                    <FormSelectOption value="sha512" label="sha512" />
+                    {PLATFORM_ORDER.map((p) => (
+                      <FormSelectOption key={p} value={p} label={MEASUREMENT_PLATFORMS[p].label} />
+                    ))}
                   </FormSelect>
+                  <FormHelperText>
+                    <HelperText>
+                      <HelperTextItem>
+                        {t(
+                          'Where the workload runs. Selects the runtime class ({{rc}}) and how the initdata is measured ({{kind}}). Bare metal writes the digest to the TDX init_data register; cloud peer pods extend it into the guest vTPM PCR 8.',
+                          {
+                            rc: MEASUREMENT_PLATFORMS[platform].runtimeClass,
+                            kind: MEASUREMENT_PLATFORMS[platform].measurementKind,
+                          },
+                        )}
+                      </HelperTextItem>
+                    </HelperText>
+                  </FormHelperText>
                 </FormGroup>
 
                 <FormGroup label={t('Kata Agent policy')} fieldId="id-policy">
@@ -677,10 +709,40 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
                 </span>
               ) : (
                 <>
-                  <FormGroup label={t('PCR8 measurement')} fieldId="id-pcr8">
+                  <FormGroup
+                    label={t('Initdata measurement ({{kind}})', {
+                      kind: MEASUREMENT_PLATFORMS[result.platform].measurementKind,
+                    })}
+                    fieldId="id-measurement"
+                  >
                     <ClipboardCopy isReadOnly hoverTip={t('Copy')} clickTip={t('Copied')}>
-                      {result.pcr8}
+                      {result.measurement}
                     </ClipboardCopy>
+                  </FormGroup>
+                  <FormGroup
+                    label={t('Reference-value name')}
+                    fieldId="id-refval-name"
+                    className={`${PREFIX}__mt`}
+                  >
+                    <TextInput
+                      id="id-refval-name"
+                      value={refvalName}
+                      onChange={(_e, v) => {
+                        setRefvalName(v);
+                        setRefvalTouched(true);
+                      }}
+                    />
+                    <FormHelperText>
+                      <HelperText>
+                        <HelperTextItem>
+                          {MEASUREMENT_PLATFORMS[result.platform].cloud
+                            ? t(
+                                'Cloud peer pods register the measurement as the vTPM PCR-8 reference value. Adjust if your Trustee policy expects a different key.',
+                              )
+                            : t('Bare-metal TDX registers the measurement as init_data.')}
+                        </HelperTextItem>
+                      </HelperText>
+                    </FormHelperText>
                   </FormGroup>
                   <div className={`${PREFIX}__mt ${PREFIX}__mb`}>
                     <Button variant="primary" onClick={() => void addToReferenceValues()}>
@@ -693,7 +755,7 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
                     )}
                     {rvStatus === 'created' && (
                       <span className={`${PREFIX}__icon-success`}>
-                        {t('Created {{cm}} and registered this PCR8', { cm: rvCmName })}
+                        {t('Created {{cm}} and registered the measurement', { cm: rvCmName })}
                       </span>
                     )}
                     {rvStatus.startsWith('error:') && (
@@ -703,8 +765,8 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
                       <HelperText>
                         <HelperTextItem>
                           {t(
-                            'Adds this initdata’s PCR8 to the RVPS reference values as “{{n}}”, so attestation accepts pods carrying it.',
-                            { n: INITDATA_REFERENCE_VALUE_NAME },
+                            'Adds this initdata’s measurement to the RVPS reference values as “{{n}}”, so attestation accepts pods carrying it.',
+                            { n: refvalName },
                           )}
                         </HelperTextItem>
                       </HelperText>
@@ -725,6 +787,16 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
                     >
                       {result.annotation}
                     </ClipboardCopy>
+                    <FormHelperText>
+                      <HelperText>
+                        <HelperTextItem>
+                          {t(
+                            'Add this as the annotation io.katacontainers.config.hypervisor.cc_init_data under the Pod’s metadata.annotations, with spec.runtimeClassName: {{rc}}. “Download pod YAML” gives a ready-to-apply example.',
+                            { rc: MEASUREMENT_PLATFORMS[result.platform].runtimeClass },
+                          )}
+                        </HelperTextItem>
+                      </HelperText>
+                    </FormHelperText>
                   </FormGroup>
                   <Split hasGutter className={`${PREFIX}__mt`}>
                     <SplitItem>
