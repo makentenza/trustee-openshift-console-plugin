@@ -81,6 +81,7 @@
       "TrusteeTopology": "./components/TrusteeTopology",
       "TrusteeAttestation": "./components/TrusteeAttestation",
       "TrusteeActivity": "./components/TrusteeActivity",
+      "TrusteeConfigRedirect": "./components/TrusteeConfigRedirect",
       "DeployTrusteeWizard": "./components/DeployTrusteeWizard",
       "TrusteePoliciesTab": "./components/tabs/TrusteePoliciesTab",
       "TrusteeReferenceValuesTab": "./components/tabs/TrusteeReferenceValuesTab",
