@@ -15,7 +15,7 @@ import {
   COCO_TEE_NODES_ROUTE,
 } from '../k8s/resources';
 import type { EventKind, NodeKind, PodKind, TeeType } from '../k8s/types';
-import { isConfidentialRuntimeName, teeLong, teeTypeForNode } from './topology';
+import { isConfidentialRuntimeName, isPeerPodRuntime, teeLong, teeTypeForNode } from './topology';
 
 export type Verdict = 'healthy' | 'failing' | 'no-attestation' | 'pending' | 'unknown';
 
@@ -33,6 +33,8 @@ export interface AttestWorkload {
   tee: TeeType;
   onTeeNode: boolean;
   nodeKnown: boolean;
+  /** kata-remote peer pod — its TEE is a cloud Confidential VM, not a cluster node. */
+  peerPod: boolean;
 }
 
 export interface AttestContext {
@@ -79,20 +81,28 @@ const containerIssue = (pod: PodKind): string | undefined => {
   return undefined;
 };
 
-/** Confidential (kata-cc*) pods, normalized for the attestation view. */
-export const buildAttestWorkloads = (pods: PodKind[], nodes: NodeKind[]): AttestWorkload[] => {
+/**
+ * Confidential pods, normalized for the attestation view: the kata-cc family (bare-metal
+ * on-node TEE) plus, when `cvmPeerPods`, kata-remote (cloud Confidential-VM peer pods).
+ */
+export const buildAttestWorkloads = (
+  pods: PodKind[],
+  nodes: NodeKind[],
+  cvmPeerPods = false,
+): AttestWorkload[] => {
   const nodeByName = new Map<string, NodeKind>();
   nodes.forEach((n) => {
     const nm = n.metadata?.name;
     if (nm) nodeByName.set(nm, n);
   });
   return pods
-    .filter((p) => isConfidentialRuntimeName(p.spec?.runtimeClassName))
+    .filter((p) => isConfidentialRuntimeName(p.spec?.runtimeClassName, cvmPeerPods))
     .map((p) => {
       const nodeName = p.spec?.nodeName ?? '';
       const nodeObj = nodeName ? nodeByName.get(nodeName) : undefined;
       const tee = teeTypeForNode(nodeObj);
       const runtime = p.spec?.runtimeClassName ?? '';
+      const peerPod = isPeerPodRuntime(runtime);
       return {
         uid: p.metadata?.uid ?? `${p.metadata?.namespace ?? ''}/${p.metadata?.name ?? ''}`,
         name: p.metadata?.name ?? '',
@@ -105,8 +115,11 @@ export const buildAttestWorkloads = (pods: PodKind[], nodes: NodeKind[]): Attest
         ready: allReady(p),
         containerIssue: containerIssue(p),
         tee,
-        onTeeNode: tee !== 'none',
+        // A peer pod's TEE is the cloud CVM, not the worker node, so node TEE labels
+        // don't apply — treat it as satisfying the "runs in a TEE" check.
+        onTeeNode: peerPod || tee !== 'none',
         nodeKnown: Boolean(nodeObj),
+        peerPod,
       };
     })
     .sort((a, b) => `${a.namespace}/${a.name}`.localeCompare(`${b.namespace}/${b.name}`));
@@ -153,13 +166,15 @@ export const buildChecks = (w: AttestWorkload, ctx: AttestContext): Check[] => [
   },
   {
     id: 'tee',
-    label: 'TEE node',
-    state: !w.nodeName ? 'unknown' : w.onTeeNode ? 'ok' : 'fail',
-    detail: !w.nodeName
-      ? 'Not scheduled to a node yet'
-      : w.onTeeNode
-        ? `${w.nodeName} · ${teeLong(w.tee)}`
-        : `${w.nodeName} has no TEE (TDX/SEV-SNP) node label`,
+    label: w.peerPod ? 'TEE' : 'TEE node',
+    state: w.peerPod ? 'ok' : !w.nodeName ? 'unknown' : w.onTeeNode ? 'ok' : 'fail',
+    detail: w.peerPod
+      ? 'Cloud Confidential VM (peer pod) — the TEE is the cloud VM, not a cluster node'
+      : !w.nodeName
+        ? 'Not scheduled to a node yet'
+        : w.onTeeNode
+          ? `${w.nodeName} · ${teeLong(w.tee)}`
+          : `${w.nodeName} has no TEE (TDX/SEV-SNP) node label`,
   },
   {
     id: 'kbs',

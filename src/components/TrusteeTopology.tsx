@@ -29,15 +29,19 @@ import {
 } from '../k8s/hooks';
 import {
   CC_INIT_DATA_ANNOTATION,
+  ConfigMapGVK,
   InfrastructureGVK,
   KBS_SERVICE_NAME,
   KBS_SERVICE_PORT,
   NodeGVK,
+  OSC_NAMESPACE,
+  PEER_PODS_CM,
   PodGVK,
   RouteGVK,
   TRUSTEE_NAMESPACE,
 } from '../k8s/resources';
 import type {
+  ConfigMapKind,
   InfrastructureKind,
   NodeKind,
   PodKind,
@@ -47,6 +51,7 @@ import type {
 import {
   buildTopoCluster,
   classifyKbsUrl,
+  cvmPeerPodsEnabled,
   decodeInitdataKbsUrl,
   isConfidentialRuntimeName,
   layoutTopology,
@@ -114,6 +119,13 @@ const TrusteeTopology: FC = () => {
     groupVersionKind: NodeGVK,
     isList: true,
   });
+  // Peer-pods config — decides whether kata-remote (cloud) workloads are confidential.
+  const [peerPodsCm] = useK8sWatchResource<ConfigMapKind>({
+    groupVersionKind: ConfigMapGVK,
+    namespace: OSC_NAMESPACE,
+    name: PEER_PODS_CM,
+  });
+  const cvmPeerPods = cvmPeerPodsEnabled(peerPodsCm?.data);
   const [infra] = useK8sWatchResource<InfrastructureKind[]>({
     groupVersionKind: InfrastructureGVK,
     isList: true,
@@ -137,7 +149,7 @@ const TrusteeTopology: FC = () => {
     void (async () => {
       const next = new Map<string, AttestInfo>();
       for (const p of pods ?? []) {
-        if (!isConfidentialRuntimeName(p.spec?.runtimeClassName)) continue;
+        if (!isConfidentialRuntimeName(p.spec?.runtimeClassName, cvmPeerPods)) continue;
         const ann = p.metadata?.annotations?.[CC_INIT_DATA_ANNOTATION];
         if (!ann) continue;
         const uid = p.metadata?.uid ?? `${p.metadata?.namespace ?? ''}/${p.metadata?.name ?? ''}`;
@@ -149,7 +161,7 @@ const TrusteeTopology: FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [pods]);
+  }, [pods, cvmPeerPods]);
 
   // Remote spokes can't resolve the in-cluster Service DNS — they reach the KBS
   // over the network through its externally-exposed Route. Find the Route that
@@ -171,10 +183,10 @@ const TrusteeTopology: FC = () => {
   const localConfidentialPodIps = useMemo(
     () =>
       (pods ?? [])
-        .filter((p) => isConfidentialRuntimeName(p.spec?.runtimeClassName))
+        .filter((p) => isConfidentialRuntimeName(p.spec?.runtimeClassName, cvmPeerPods))
         .map((p) => p.status?.podIP)
         .filter(Boolean) as string[],
-    [pods],
+    [pods, cvmPeerPods],
   );
 
   // Remote confidential workloads (in other clusters) that attested to this
@@ -190,10 +202,10 @@ const TrusteeTopology: FC = () => {
   const layout = useMemo(
     () =>
       layoutTopology(
-        buildTopoCluster(pods ?? [], nodes ?? [], infra ?? [], attestByUid),
+        buildTopoCluster(pods ?? [], nodes ?? [], infra ?? [], attestByUid, cvmPeerPods),
         spokes.length,
       ),
-    [pods, nodes, infra, attestByUid, spokes.length],
+    [pods, nodes, infra, attestByUid, cvmPeerPods, spokes.length],
   );
 
   const loading = !tcLoaded || !podsLoaded || !nodesLoaded;
