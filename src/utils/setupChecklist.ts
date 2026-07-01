@@ -25,7 +25,6 @@ export type SetupStepState = 'ok' | 'pending' | 'attention' | 'todo';
 export type SetupStepId =
   | 'operator'
   | 'trusteeconfig'
-  | 'kbs'
   | 'reference-values'
   | 'initdata'
   | 'policies'
@@ -70,8 +69,14 @@ export const buildSetupSteps = (i: SetupInputs): SetupStep[] => {
   const started = i.tcCreated;
   return [
     { id: 'operator', required: true, state: i.operatorReady ? 'ok' : 'attention' },
-    { id: 'trusteeconfig', required: true, state: i.tcCreated ? 'ok' : 'todo' },
-    { id: 'kbs', required: true, state: !started ? 'todo' : i.kbsReady ? 'ok' : 'pending' },
+    // Creating the TrusteeConfig makes the operator deploy the KBS automatically, so we
+    // fold KBS rollout into this step rather than showing a separate can't-fail "operator
+    // deploys KBS" step (#18): ok once the KBS is up, pending while it rolls out.
+    {
+      id: 'trusteeconfig',
+      required: true,
+      state: !i.tcCreated ? 'todo' : i.kbsReady ? 'ok' : 'pending',
+    },
     {
       id: 'reference-values',
       required: true,

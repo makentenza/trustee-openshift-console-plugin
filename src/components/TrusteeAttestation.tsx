@@ -42,6 +42,8 @@ import {
   EVIDENCE_LABEL,
   EventGVK,
   NodeGVK,
+  OSC_NAMESPACE,
+  PEER_PODS_CM,
   PodGVK,
   RVPS_REFERENCE_VALUES_KEY,
   RVPS_REFERENCE_VALUES_SUFFIX,
@@ -63,7 +65,7 @@ import {
   type Check,
   type Verdict,
 } from '../utils/attestation';
-import { teeShort } from '../utils/topology';
+import { cvmPeerPodsEnabled, teeShort } from '../utils/topology';
 import { COCO_KATACONFIG_FLAG, cocoRoutesPresent } from '../utils/crossPlugin';
 import {
   decodeJwt,
@@ -325,6 +327,13 @@ const TrusteeAttestation: FC = () => {
     groupVersionKind: NodeGVK,
     isList: true,
   });
+  // Peer-pods config — decides whether kata-remote (cloud) workloads are confidential.
+  const [peerPodsCm] = useK8sWatchResource<ConfigMapKind>({
+    groupVersionKind: ConfigMapGVK,
+    namespace: OSC_NAMESPACE,
+    name: PEER_PODS_CM,
+  });
+  const cvmPeerPods = cvmPeerPodsEnabled(peerPodsCm?.data);
   const primaryTc = useMemo(
     () => trusteeConfigs.find((tc) => isReady(tc)) ?? trusteeConfigs[0],
     [trusteeConfigs],
@@ -372,7 +381,10 @@ const TrusteeAttestation: FC = () => {
     () => ({ kbsReady, referenceValuesPresent: refPresent }),
     [kbsReady, refPresent],
   );
-  const workloads = useMemo(() => buildAttestWorkloads(pods ?? [], nodes ?? []), [pods, nodes]);
+  const workloads = useMemo(
+    () => buildAttestWorkloads(pods ?? [], nodes ?? [], cvmPeerPods),
+    [pods, nodes, cvmPeerPods],
+  );
   const rows = useMemo(
     () => workloads.map((w) => ({ w, verdict: baselineVerdict(w, ctx) })),
     [workloads, ctx],

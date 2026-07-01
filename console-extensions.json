@@ -92,17 +92,22 @@
     "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
   },
   {
-    "type": "console.navigation/resource-ns",
+    "type": "console.navigation/href",
     "properties": {
       "id": "trustee-configs",
       "perspective": "admin",
       "section": "trustee",
-      "name": "%plugin__trustee-openshift-console-plugin~TrusteeConfigs%",
-      "model": {
-        "group": "confidentialcontainers.org",
-        "version": "v1alpha1",
-        "kind": "TrusteeConfig"
-      }
+      "name": "%plugin__trustee-openshift-console-plugin~TrusteeConfig%",
+      "href": "/trustee/config"
+    },
+    "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/trustee/config",
+      "component": { "$codeRef": "TrusteeConfigRedirect" }
     },
     "flags": { "required": ["TRUSTEE_TRUSTEECONFIG"] }
   },

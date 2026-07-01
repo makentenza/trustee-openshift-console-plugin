@@ -17,9 +17,15 @@ import {
 } from '@patternfly/react-core';
 import ConfigMapEditor from '../shared/ConfigMapEditor';
 import GenerateReferenceValuesModal from '../GenerateReferenceValuesModal';
-import { ClusterVersionGVK, NodeGVK } from '../../k8s/resources';
-import type { NodeKind } from '../../k8s/types';
-import { detectClusterTee } from '../../utils/topology';
+import {
+  ClusterVersionGVK,
+  ConfigMapGVK,
+  NodeGVK,
+  OSC_NAMESPACE,
+  PEER_PODS_CM,
+} from '../../k8s/resources';
+import type { ConfigMapKind, NodeKind } from '../../k8s/types';
+import { cvmPeerPodsEnabled, detectClusterTee } from '../../utils/topology';
 import type { TrusteeTabProps } from './types';
 import '../trustee.css';
 
@@ -45,6 +51,16 @@ const TrusteeReferenceValuesTab: FC<TrusteeTabProps> = ({ obj }) => {
   const [nodes] = useK8sWatchResource<NodeKind[]>({ groupVersionKind: NodeGVK, isList: true });
   const detectedTee = useMemo(() => detectClusterTee(nodes ?? []), [nodes]);
   const tee: Tee = teeOverride ?? detectedTee ?? 'tdx';
+
+  // veritas generates BARE-METAL host measurements — meaningless for cloud peer pods,
+  // whose reference value is the initdata PCR 8 (registered from the Initdata tab). Detect
+  // the cloud case so we show the right guidance instead of the veritas per-TEE-platform flow.
+  const [peerPodsCm] = useK8sWatchResource<ConfigMapKind>({
+    groupVersionKind: ConfigMapGVK,
+    namespace: OSC_NAMESPACE,
+    name: PEER_PODS_CM,
+  });
+  const cvmPeerPods = cvmPeerPodsEnabled(peerPodsCm?.data);
 
   // Auto-fill the OCP version veritas should target from the cluster's own version.
   const [clusterVersion] = useK8sWatchResource<ClusterVersionKind>({
@@ -81,74 +97,90 @@ const TrusteeReferenceValuesTab: FC<TrusteeTabProps> = ({ obj }) => {
           }}
         />
       )}
-      <Alert
-        variant="info"
-        isInline
-        title={t('Reference values must be generated per TEE platform')}
-        className="trustee-openshift-console-plugin__mb"
-      >
-        <Content component="p">
-          {t(
-            'reference-values.json is empty by default. Generate it for your TEE platform with the veritas tool, then re-import it here. Regenerate and re-apply it after any TEE firmware, OpenShift, or OpenShift sandboxed containers (OSC) upgrade — those change the expected measurements.',
-          )}
-        </Content>
-        <Flex
-          alignItems={{ default: 'alignItemsCenter' }}
-          gap={{ default: 'gapMd' }}
-          className="trustee-openshift-console-plugin__mt trustee-openshift-console-plugin__mb"
+      {cvmPeerPods && (
+        <Alert
+          variant="info"
+          isInline
+          title={t('Cloud peer pods — reference values come from the initdata measurement')}
+          className="trustee-openshift-console-plugin__mb"
         >
-          <FlexItem>
-            <FormSelect
-              value={tee}
-              aria-label={t('TEE platform')}
-              onChange={(_e, v) => {
-                setTeeOverride(v as Tee);
-              }}
-            >
-              <FormSelectOption value="tdx" label={t('Intel TDX')} />
-              <FormSelectOption value="snp" label={t('AMD SEV-SNP')} />
-            </FormSelect>
-          </FlexItem>
-          <FlexItem>
-            <Button
-              variant="primary"
-              onClick={() => {
-                setModalOpen(true);
-              }}
-            >
-              {t('Generate reference values')}
-            </Button>
-          </FlexItem>
-        </Flex>
-        <Content component="p" className="trustee-openshift-console-plugin__muted">
-          {detectedTee
-            ? t(
-                'Detected {{tee}} on this cluster’s nodes (from NFD labels) — pre-selected above.',
-                {
-                  tee: detectedTee === 'tdx' ? t('Intel TDX') : t('AMD SEV-SNP'),
-                },
-              )
-            : t(
-                'No TEE node label (Intel TDX / AMD SEV-SNP) detected on this cluster’s nodes — pick your workload cluster’s platform above.',
-              )}
-        </Content>
-        <ExpandableSection toggleText={t('Manual / advanced (run veritas yourself)')}>
-          <Content component="p" className="trustee-openshift-console-plugin__mb">
+          <Content component="p">
             {t(
-              'Prefer to run veritas outside the cluster? Generate the ConfigMap manually and import it below.',
+              'On cloud (peer pods) the workload runs in a cloud Confidential VM, so there are no per-node host measurements to generate with veritas. The reference value to register is the initdata vTPM PCR 8 — author it in the Initdata tab and click “Add to reference values”. Edit reference-values.json directly below if you need to.',
             )}
           </Content>
-          <ClipboardCopy
-            isReadOnly
-            isCode
-            variant="expansion"
-            hoverTip={t('Copy')}
-            clickTip={t('Copied')}
+        </Alert>
+      )}
+      {!cvmPeerPods && (
+        <Alert
+          variant="info"
+          isInline
+          title={t('Reference values must be generated per TEE platform')}
+          className="trustee-openshift-console-plugin__mb"
+        >
+          <Content component="p">
+            {t(
+              'reference-values.json is empty by default. Generate it for your TEE platform with the veritas tool, then re-import it here. Regenerate and re-apply it after any TEE firmware, OpenShift, or OpenShift sandboxed containers (OSC) upgrade — those change the expected measurements. Generating replaces the whole reference-values.json, so back up any manually-registered values (e.g. an initdata init_data entry) first.',
+            )}
+          </Content>
+          <Flex
+            alignItems={{ default: 'alignItemsCenter' }}
+            gap={{ default: 'gapMd' }}
+            className="trustee-openshift-console-plugin__mt trustee-openshift-console-plugin__mb"
           >
-            {veritasCmd}
-          </ClipboardCopy>
-        </ExpandableSection>
-      </Alert>
+            <FlexItem>
+              <FormSelect
+                value={tee}
+                aria-label={t('TEE platform')}
+                onChange={(_e, v) => {
+                  setTeeOverride(v as Tee);
+                }}
+              >
+                <FormSelectOption value="tdx" label={t('Intel TDX')} />
+                <FormSelectOption value="snp" label={t('AMD SEV-SNP')} />
+              </FormSelect>
+            </FlexItem>
+            <FlexItem>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setModalOpen(true);
+                }}
+              >
+                {t('Generate reference values')}
+              </Button>
+            </FlexItem>
+          </Flex>
+          <Content component="p" className="trustee-openshift-console-plugin__muted">
+            {detectedTee
+              ? t(
+                  'Detected {{tee}} on this cluster’s nodes (from NFD labels) — pre-selected above.',
+                  {
+                    tee: detectedTee === 'tdx' ? t('Intel TDX') : t('AMD SEV-SNP'),
+                  },
+                )
+              : t(
+                  'No TEE node label (Intel TDX / AMD SEV-SNP) detected on this cluster’s nodes — pick your workload cluster’s platform above.',
+                )}
+          </Content>
+          <ExpandableSection toggleText={t('Manual / advanced (run veritas yourself)')}>
+            <Content component="p" className="trustee-openshift-console-plugin__mb">
+              {t(
+                'Prefer to run veritas outside the cluster? Generate the ConfigMap manually and import it below.',
+              )}
+            </Content>
+            <ClipboardCopy
+              isReadOnly
+              isCode
+              variant="expansion"
+              hoverTip={t('Copy')}
+              clickTip={t('Copied')}
+            >
+              {veritasCmd}
+            </ClipboardCopy>
+          </ExpandableSection>
+        </Alert>
+      )}
       <ConfigMapEditor
         namespace={namespace}
         configMapName={`${name}-rvps-reference-values`}
