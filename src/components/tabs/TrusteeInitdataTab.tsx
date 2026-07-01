@@ -451,7 +451,7 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
             <CardTitle>{t('1. Configure')}</CardTitle>
             <CardBody>
               <Form>
-                <FormGroup label={t('Where the workload runs')} fieldId="id-endpoint">
+                <FormGroup label={t('KBS endpoint the workload uses')} fieldId="id-endpoint">
                   <FormSelect
                     id="id-endpoint"
                     value={effectiveMode}
@@ -465,26 +465,42 @@ const TrusteeInitdataTab: FC<TrusteeTabProps> = ({ obj }) => {
                       value="external"
                       label={
                         externalUrl
-                          ? t('A different cluster (hub-and-spoke) — recommended for sharing')
-                          : t('A different cluster (hub-and-spoke)')
+                          ? t('External Route (reachable from any cluster) — recommended')
+                          : t('External Route (reachable from any cluster)')
                       }
                       isDisabled={!externalUrl}
                     />
-                    <FormSelectOption value="incluster" label={t('This cluster (co-located)')} />
+                    <FormSelectOption
+                      value="incluster"
+                      label={t('In-cluster Service (this cluster only)')}
+                    />
                   </FormSelect>
                   <FormHelperText>
                     <HelperText>
                       <HelperTextItem>
                         {effectiveMode === 'external' && !externalUrl
                           ? t(
-                              'No external Route to kbs-service found. Create a Route to expose this Trustee, or pick “This cluster”.',
+                              'No external Route to kbs-service found. Create a Route to expose this Trustee, or pick the in-cluster Service.',
                             )
                           : t(
-                              'Picks the KBS URL baked into the initdata. Sharing initdata for a workload on another cluster? Use the external Route — the in-cluster Service URL is unreachable from a spoke.',
+                              'Picks the KBS URL baked into the initdata — how the workload reaches this Trustee, independent of where the workload runs. A Route works for workloads on this cluster or another; the in-cluster Service URL only resolves on this cluster.',
                             )}
                       </HelperTextItem>
                     </HelperText>
                   </FormHelperText>
+                  {effectiveMode === 'incluster' && (
+                    <Alert
+                      variant="warning"
+                      isInline
+                      isPlain
+                      title={t('Co-locating the workload with Trustee is not a production setup')}
+                      className={`${PREFIX}__mt`}
+                    >
+                      {t(
+                        'The in-cluster Service means the confidential workload runs on the same cluster as Trustee. For production, run Trustee on a separate, trusted cluster and expose it over a Route (hub-and-spoke) so the cluster hosting the workload cannot tamper with attestation.',
+                      )}
+                    </Alert>
+                  )}
                 </FormGroup>
 
                 {kbsTlsMode === 'http' && httpsSecretName && (
