@@ -3,17 +3,78 @@
 // added to the RVPS reference values, and the gzip+base64 annotation is shared with the
 // confidential-workload owner to put on their pod.
 //   initdata.toml  ->  gzip | base64   (the cc_init_data pod annotation)
-//   measurement    =  <algorithm>(initdata.toml), placed verbatim in the TDX TD report's
-//                     48-byte MRCONFIGID / `init_data` register (right zero-padded for a
-//                     short digest). This is the RAW padded digest — NOT a TPM PCR-extend.
+//
+// The MEASUREMENT differs by platform (validated against the OSC 1.12 Azure docs):
+//   * Bare-metal Intel TDX: raw sha256(initdata.toml), placed verbatim in the TD report's
+//     48-byte MRCONFIGID / `init_data` register (right zero-padded). RAW padded digest,
+//     NOT a TPM PCR-extend. Registered in RVPS as `init_data`.
+//   * Cloud peer pods (Azure SEV-SNP or TDX Confidential VM): the guest has a vTPM and the
+//     initdata digest is extended into PCR 8:  PCR8 = sha256( 32 zero bytes ‖ sha256(toml) ).
+//     Registered in RVPS as the PCR-8 reference value.
+// Kata always hashes initdata.toml with sha256 for this, so there is no algorithm choice.
 
-export type HashAlgo = 'sha256' | 'sha384' | 'sha512';
+/** The Kata initdata hash is always sha256 (both the TDX register and the vTPM PCR bank). */
+const SHA256 = 'SHA-256';
 
-const SUBTLE: Record<HashAlgo, string> = {
-  sha256: 'SHA-256',
-  sha384: 'SHA-384',
-  sha512: 'SHA-512',
+/**
+ * Where the confidential workload runs — this decides the runtime class, how the initdata
+ * measurement is derived, and the RVPS reference-value name it is registered under.
+ */
+export type MeasurementPlatform = 'tdx-baremetal' | 'snp-cloud' | 'tdx-cloud';
+
+export interface PlatformMeta {
+  id: MeasurementPlatform;
+  /** Full label for the selector. */
+  label: string;
+  /** Short label for inline copy. */
+  short: string;
+  /** Cloud peer pods (kata-remote in a cloud Confidential VM) vs bare-metal on-node TEE. */
+  cloud: boolean;
+  /** Runtime class the workload pod must use. */
+  runtimeClass: 'kata-cc' | 'kata-remote';
+  /** Default RVPS reference-value name the initdata measurement is registered under. */
+  refvalName: string;
+  /** Human description of the register/measurement the value lands in. */
+  measurementKind: string;
+}
+
+/**
+ * Platform metadata. `refvalName` is the DEFAULT reference-value key; the Initdata tab
+ * shows it editable, because the exact cloud vTPM PCR-8 key can vary by Trustee policy and
+ * the Trustee admin authoring the initdata knows their setup. Bare-metal TDX is `init_data`
+ * (the generic CoCo init-data claim); cloud defaults to `pcr08`.
+ */
+export const MEASUREMENT_PLATFORMS: Record<MeasurementPlatform, PlatformMeta> = {
+  'tdx-baremetal': {
+    id: 'tdx-baremetal',
+    label: 'Intel TDX — bare metal (on-node TEE)',
+    short: 'Intel TDX (bare metal)',
+    cloud: false,
+    runtimeClass: 'kata-cc',
+    refvalName: 'init_data',
+    measurementKind: 'TDX MRCONFIGID (init_data register)',
+  },
+  'snp-cloud': {
+    id: 'snp-cloud',
+    label: 'AMD SEV-SNP — cloud peer pods',
+    short: 'AMD SEV-SNP (cloud)',
+    cloud: true,
+    runtimeClass: 'kata-remote',
+    refvalName: 'pcr08',
+    measurementKind: 'vTPM PCR 8',
+  },
+  'tdx-cloud': {
+    id: 'tdx-cloud',
+    label: 'Intel TDX — cloud peer pods',
+    short: 'Intel TDX (cloud)',
+    cloud: true,
+    runtimeClass: 'kata-remote',
+    refvalName: 'pcr08',
+    measurementKind: 'vTPM PCR 8',
+  },
 };
+
+export const PLATFORM_ORDER: MeasurementPlatform[] = ['tdx-baremetal', 'snp-cloud', 'tdx-cloud'];
 
 /** Kata Agent policy requests, in the order the doc lists them, with the permissive defaults. */
 export const POLICY_DEFAULTS: ReadonlyArray<readonly [string, boolean]> = [
@@ -55,20 +116,22 @@ export const POLICY_DEFAULTS: ReadonlyArray<readonly [string, boolean]> = [
   ['WriteStreamRequest', false],
 ];
 
-/** The security-sensitive requests we surface as toggles in the UI. */
-export const SENSITIVE_REQUESTS = [
-  'ExecProcessRequest',
-  'ReadStreamRequest',
-  'WriteStreamRequest',
-  'SetPolicyRequest',
-  'PullImageRequest',
-] as const;
+// Any request name is a valid override key; POLICY_DEFAULTS covers the rest.
+export type SensitiveRequest = string;
 
-export type SensitiveRequest = (typeof SENSITIVE_REQUESTS)[number];
+/**
+ * The one policy toggle we surface in the UI. The doc-critical control is disabling
+ * `ExecProcessRequest` (no `oc exec` into the confidential VM). Everything else keeps its
+ * secure POLICY_DEFAULTS value; in particular PullImageRequest stays true (disabling it
+ * breaks the container) and Set/WriteStream stay false — so we don't expose footgun toggles
+ * that only invite reference-value mismatches.
+ */
+export const SENSITIVE_REQUESTS = ['ExecProcessRequest'] as const;
 
 export interface InitdataInput {
   trusteeUrl: string;
-  algorithm: HashAlgo;
+  /** Where the workload runs — selects runtime class + how the measurement is derived. */
+  platform: MeasurementPlatform;
   /** PEM certificate (full PEM or just the base64 body). Optional — omit for insecure_http. */
   kbsCert?: string;
   /** kbs:///default/<secret-policy-name>/<key> — optional, only for image signature verification. */
@@ -79,7 +142,7 @@ export interface InitdataInput {
 
 const policyRego = (overrides: InitdataInput['policyOverrides']): string => {
   const lines = POLICY_DEFAULTS.map(([name, def]) => {
-    const value = name in overrides ? overrides[name as SensitiveRequest] : def;
+    const value = name in overrides ? overrides[name] : def;
     return `default ${name} := ${String(value)}`;
   });
   return `package agent_policy\n\n${lines.join('\n')}\n`;
@@ -87,7 +150,7 @@ const policyRego = (overrides: InitdataInput['policyOverrides']): string => {
 
 /** Render a complete initdata.toml from the builder inputs. */
 export const buildInitdataToml = (input: InitdataInput): string => {
-  const { trusteeUrl, algorithm, kbsCert, imageSecurityPolicyUri } = input;
+  const { trusteeUrl, kbsCert, imageSecurityPolicyUri } = input;
   // Accept either a full PEM (with BEGIN/END lines) or just the base64 body —
   // strip any markers the user pasted, then re-wrap exactly once.
   const certBody = kbsCert
@@ -114,7 +177,7 @@ export const buildInitdataToml = (input: InitdataInput): string => {
     ? `[image]\nimage_security_policy_uri = '${imageSecurityPolicyUri}'\n`
     : '';
 
-  return `algorithm = "${algorithm}"
+  return `algorithm = "sha256"
 version = "0.1.0"
 [data]
 "aa.toml" = '''
@@ -143,8 +206,10 @@ const toHex = (buf: ArrayBuffer): string =>
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 
-const digestHex = async (algo: HashAlgo, data: Uint8Array): Promise<string> =>
-  toHex(await crypto.subtle.digest(SUBTLE[algo], data.buffer as ArrayBuffer));
+const sha256 = (data: Uint8Array): Promise<ArrayBuffer> =>
+  crypto.subtle.digest(SHA256, data.buffer as ArrayBuffer);
+
+const sha256Hex = async (data: Uint8Array): Promise<string> => toHex(await sha256(data));
 
 /** gzip(text) then base64 — the value of the cc_init_data pod annotation. */
 export const gzipBase64 = async (text: string): Promise<string> => {
@@ -161,38 +226,59 @@ export const gzipBase64 = async (text: string): Promise<string> => {
 };
 
 /**
- * The initdata measurement Trustee's TDX verifier surfaces as the `init_data` claim and
- * the OPA policy compares to the RVPS reference value. The kata guest hashes initdata.toml
- * with `algorithm` and the host writes that digest into the TD report's 48-byte MRCONFIGID
- * register, right zero-padded when the digest is shorter (sha256 → 32 B + 16 zero bytes;
- * sha384 fills it exactly; sha512 is truncated — prefer sha384/sha256 for TDX).
+ * Bare-metal Intel TDX initdata measurement: the `init_data` claim Trustee's TDX verifier
+ * surfaces and the OPA policy compares to the RVPS reference value. The kata guest hashes
+ * initdata.toml with sha256 and the host writes that 32-byte digest into the TD report's
+ * 48-byte MRCONFIGID register, right zero-padded (32 B digest + 16 zero bytes).
  *
- * This is the RAW padded digest, NOT a TPM PCR-extend. The old `sha256(32 zeros ‖ digest)`
- * form passed under a Permissive policy (which doesn't gate on init_data) but never matched
- * a real TD quote, so it rejected every workload under Restricted. Verified against a live
- * TD quote's mr_config_id.
+ * This is the RAW padded digest, NOT a TPM PCR-extend. Verified against a live TD quote's
+ * mr_config_id.
  */
-export const computePcr8 = async (algorithm: HashAlgo, tomlText: string): Promise<string> => {
-  const digestHexStr = await digestHex(algorithm, new TextEncoder().encode(tomlText));
-  // MRCONFIGID is 48 bytes (96 hex): pad short digests with trailing zeros, truncate long.
+export const computeInitDataMrConfigId = async (tomlText: string): Promise<string> => {
+  const digestHexStr = await sha256Hex(new TextEncoder().encode(tomlText));
+  // MRCONFIGID is 48 bytes (96 hex): pad the 32-byte sha256 digest with trailing zeros.
   return (digestHexStr + '0'.repeat(96)).slice(0, 96);
 };
+
+/**
+ * Cloud peer-pod initdata measurement (Azure SEV-SNP / TDX Confidential VM). The guest has a
+ * vTPM and extends the initdata digest into PCR 8 from a zeroed PCR:
+ *   PCR8 = sha256( 32 zero bytes ‖ sha256(initdata.toml) )
+ * — a standard TPM extend, so the value is a 32-byte (64-hex) sha256 digest.
+ */
+export const computePcr8 = async (tomlText: string): Promise<string> => {
+  const inner = await sha256(new TextEncoder().encode(tomlText));
+  const extend = new Uint8Array(32 + 32); // 32 zero bytes (initial PCR) ‖ measurement digest
+  extend.set(new Uint8Array(inner), 32);
+  return sha256Hex(extend);
+};
+
+/** Compute the initdata measurement for the given platform. */
+export const computeMeasurement = (
+  platform: MeasurementPlatform,
+  tomlText: string,
+): Promise<string> =>
+  MEASUREMENT_PLATFORMS[platform].cloud
+    ? computePcr8(tomlText)
+    : computeInitDataMrConfigId(tomlText);
 
 export interface InitdataResult {
   toml: string;
   /** gzip+base64 — the io.katacontainers.config.hypervisor.cc_init_data annotation. */
   annotation: string;
-  /** init_data measurement (TDX MRCONFIGID) — added to the RVPS reference values in Trustee. */
-  pcr8: string;
+  /** Initdata measurement — TDX MRCONFIGID (bare metal) or vTPM PCR 8 (cloud). */
+  measurement: string;
+  /** The platform the measurement was computed for. */
+  platform: MeasurementPlatform;
 }
 
 export const buildInitdata = async (input: InitdataInput): Promise<InitdataResult> => {
   const toml = buildInitdataToml(input);
-  const [annotation, pcr8] = await Promise.all([
+  const [annotation, measurement] = await Promise.all([
     gzipBase64(toml),
-    computePcr8(input.algorithm, toml),
+    computeMeasurement(input.platform, toml),
   ]);
-  return { toml, annotation, pcr8 };
+  return { toml, annotation, measurement, platform: input.platform };
 };
 
 export interface WorkloadPodYamlInput {
@@ -202,8 +288,10 @@ export interface WorkloadPodYamlInput {
   source?: string;
   /** KBS endpoint baked into the initdata. */
   kbsUrl?: string;
-  /** init_data measurement registered in the Trustee's reference values. */
-  pcr8?: string;
+  /** Initdata measurement registered in the Trustee's reference values. */
+  measurement?: string;
+  /** Platform the initdata targets — decides the runtime class. Defaults to bare-metal TDX. */
+  platform?: MeasurementPlatform;
   /** Pod name to scaffold. */
   podName?: string;
 }
@@ -212,13 +300,29 @@ export interface WorkloadPodYamlInput {
  * Sample confidential Pod YAML carrying the cc_init_data annotation — what the
  * Initdata tab offers for download, both right after generating and later from the
  * "Saved initdata" list, so the value is the same regardless of where it's grabbed.
+ * The runtime class follows the platform: kata-remote for cloud peer pods (Azure
+ * Confidential VMs), kata-cc for bare-metal on-node TEE.
  */
 export const buildWorkloadPodYaml = (input: WorkloadPodYamlInput): string => {
-  const { annotation, source, kbsUrl, pcr8, podName = 'my-confidential-workload' } = input;
+  const {
+    annotation,
+    source,
+    kbsUrl,
+    measurement,
+    platform = 'tdx-baremetal',
+    podName = 'my-confidential-workload',
+  } = input;
+  const meta = MEASUREMENT_PLATFORMS[platform];
   return [
     `# Confidential workload initdata${source ? ` — authored by Trustee (${source})` : ''}`,
     ...(kbsUrl ? [`# KBS endpoint: ${kbsUrl}`] : []),
-    ...(pcr8 ? [`# PCR8 (registered in this Trustee's reference values): ${pcr8}`] : []),
+    `# Platform: ${meta.short}`,
+    ...(measurement
+      ? [
+          `# Measurement — ${meta.measurementKind} (registered in this Trustee as ${meta.refvalName}):`,
+          `#   ${measurement}`,
+        ]
+      : []),
     '#',
     '# Put the annotation below on your confidential Pod, then deploy it.',
     'apiVersion: v1',
@@ -228,7 +332,7 @@ export const buildWorkloadPodYaml = (input: WorkloadPodYamlInput): string => {
     '  annotations:',
     `    io.katacontainers.config.hypervisor.cc_init_data: "${annotation}"`,
     'spec:',
-    '  runtimeClassName: kata-cc',
+    `  runtimeClassName: ${meta.runtimeClass}`,
     '  containers:',
     '    - name: app',
     '      image: <your-image>',
