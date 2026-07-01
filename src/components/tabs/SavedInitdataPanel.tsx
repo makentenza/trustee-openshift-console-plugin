@@ -20,9 +20,17 @@ import {
   SHARED_INITDATA_KBS_URL_KEY,
   SHARED_INITDATA_LABEL,
   SHARED_INITDATA_PCR8_KEY,
+  SHARED_INITDATA_PLATFORM_KEY,
 } from '../../k8s/resources';
 import type { ConfigMapKind } from '../../k8s/types';
-import { buildWorkloadPodYaml } from '../../utils/initdata';
+import {
+  buildWorkloadPodYaml,
+  MEASUREMENT_PLATFORMS,
+  type MeasurementPlatform,
+} from '../../utils/initdata';
+
+const asPlatform = (v?: string): MeasurementPlatform =>
+  v && v in MEASUREMENT_PLATFORMS ? (v as MeasurementPlatform) : 'tdx-baremetal';
 import '../trustee.css';
 
 const PREFIX = 'trustee-openshift-console-plugin';
@@ -71,6 +79,7 @@ export const SavedInitdataPanel: FC<Props> = ({ namespace }) => {
           annotation: cm.data?.[SHARED_INITDATA_DATA_KEY] ?? '',
           kbsUrl: cm.data?.[SHARED_INITDATA_KBS_URL_KEY] ?? '',
           pcr8: cm.data?.[SHARED_INITDATA_PCR8_KEY] ?? '',
+          platform: asPlatform(cm.data?.[SHARED_INITDATA_PLATFORM_KEY]),
         }))
         .filter((i) => i.name !== '' && i.annotation !== '')
         .sort((a, b) => a.name.localeCompare(b.name)),
@@ -122,7 +131,11 @@ export const SavedInitdataPanel: FC<Props> = ({ namespace }) => {
                   )}
                   {it.pcr8 !== '' && (
                     <DescriptionListGroup>
-                      <DescriptionListTerm>{t('PCR8 measurement')}</DescriptionListTerm>
+                      <DescriptionListTerm>
+                        {t('Initdata measurement ({{kind}})', {
+                          kind: MEASUREMENT_PLATFORMS[it.platform].measurementKind,
+                        })}
+                      </DescriptionListTerm>
                       <DescriptionListDescription>
                         <ClipboardCopy isReadOnly hoverTip={t('Copy')} clickTip={t('Copied')}>
                           {it.pcr8}
@@ -153,7 +166,8 @@ export const SavedInitdataPanel: FC<Props> = ({ namespace }) => {
                       buildWorkloadPodYaml({
                         source: it.name,
                         kbsUrl: it.kbsUrl,
-                        pcr8: it.pcr8,
+                        measurement: it.pcr8,
+                        platform: it.platform,
                         annotation: it.annotation,
                       }),
                     );

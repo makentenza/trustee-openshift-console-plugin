@@ -229,7 +229,9 @@ export const RVPS_REFERENCE_VALUES_SUFFIX = '-rvps-reference-values';
 export const RVPS_REFERENCE_VALUES_KEY = 'reference-values.json';
 /** Confidential Data Hub port inside the guest — the in-VM attestation probe target. */
 export const CDH_RESOURCE_PROBE_PORT = 8006;
-/** Reference-value name under which the initdata measurement (PCR8) is registered in RVPS. */
+// Default RVPS reference-value name for the bare-metal TDX initdata measurement. The cloud
+// (peer-pods vTPM PCR 8) name differs per platform — see MEASUREMENT_PLATFORMS in
+// utils/initdata.ts, which the Initdata tab uses to pick and surface the name.
 export const INITDATA_REFERENCE_VALUE_NAME = 'init_data';
 /** ConfigMap (<tc>-shared-initdata) + label for initdata shared with the workload owner. */
 export const SHARED_INITDATA_CM_SUFFIX = '-shared-initdata';
@@ -238,7 +240,12 @@ export const SHARED_INITDATA_LABEL = 'trustee.attestation/shared-initdata';
 // the "Saved initdata" reader). The CoCo plugin reads the same keys.
 export const SHARED_INITDATA_DATA_KEY = 'cc_init_data';
 export const SHARED_INITDATA_KBS_URL_KEY = 'kbs-url';
+// Holds the initdata measurement value (TDX MRCONFIGID on bare metal, vTPM PCR 8 on cloud).
+// Key name kept as 'pcr8' for backward compatibility with already-shared initdata and the
+// CoCo reader; the value is the platform-appropriate measurement.
 export const SHARED_INITDATA_PCR8_KEY = 'pcr8';
+/** Platform the initdata targets (MeasurementPlatform id). Optional — absent = bare-metal TDX. */
+export const SHARED_INITDATA_PLATFORM_KEY = 'platform';
 /** Label on the evidence ConfigMaps the CoCo sidecar writes and Trustee reads. */
 export const EVIDENCE_LABEL = 'trustee.attestation/evidence';
 /**
