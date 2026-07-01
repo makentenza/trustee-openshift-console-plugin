@@ -26,7 +26,6 @@ describe('buildSetupSteps', () => {
     expect(buildSetupSteps(base).map((s) => s.id)).toEqual([
       'operator',
       'trusteeconfig',
-      'kbs',
       'reference-values',
       'initdata',
       'policies',
@@ -44,20 +43,19 @@ describe('buildSetupSteps', () => {
     expect(step(buildSetupSteps(base), 'operator').state).toBe('ok');
   });
 
-  it('keeps automatic + required steps as todo until a TrusteeConfig exists', () => {
+  it('keeps required steps as todo until a TrusteeConfig exists', () => {
     const steps = buildSetupSteps(base);
     expect(step(steps, 'trusteeconfig').state).toBe('todo');
-    expect(step(steps, 'kbs').state).toBe('todo');
     expect(step(steps, 'reference-values').state).toBe('todo');
   });
 
-  it('marks the KBS step pending while the operator reconciles, ok once rolled out', () => {
+  it('folds KBS rollout into the TrusteeConfig step: pending while reconciling, ok once up', () => {
+    // No separate "operator deploys KBS" step (#18) — the TrusteeConfig step reflects it.
     const pending = buildSetupSteps({ ...base, tcCreated: true, kbsReady: false });
-    expect(step(pending, 'trusteeconfig').state).toBe('ok');
-    expect(step(pending, 'kbs').state).toBe('pending');
+    expect(step(pending, 'trusteeconfig').state).toBe('pending');
 
     const up = buildSetupSteps({ ...base, tcCreated: true, kbsReady: true });
-    expect(step(up, 'kbs').state).toBe('ok');
+    expect(step(up, 'trusteeconfig').state).toBe('ok');
   });
 
   it('flags reference values for attention once the TC exists but none are set', () => {
