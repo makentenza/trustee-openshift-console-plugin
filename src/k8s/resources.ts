@@ -203,6 +203,10 @@ export const CLUSTER_PULL_SECRET = { name: 'pull-secret', namespace: 'openshift-
 // ---- Well-known names / locations ----
 /** Default namespace for the Red Hat build of Trustee operator. */
 export const TRUSTEE_NAMESPACE = 'trustee-operator-system';
+/** OpenShift sandboxed containers operator namespace (where CoCo/peer-pods config lives). */
+export const OSC_NAMESPACE = 'openshift-sandboxed-containers-operator';
+/** Peer-pods ConfigMap; its CLOUD_PROVIDER/DISABLECVM decide if kata-remote is a CVM. */
+export const PEER_PODS_CM = 'peer-pods-cm';
 /** Label the Trustee operator puts on the KBS workload pods. */
 export const KBS_POD_SELECTOR = 'app=kbs';
 /** `metadata.labels.app` value KBS pods carry (the client-side filter key). */

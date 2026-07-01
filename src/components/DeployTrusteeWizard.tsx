@@ -269,15 +269,8 @@ const DeployTrusteeWizard: FC = () => {
     trusteeconfig: {
       title: t('Create the TrusteeConfig'),
       desc: t(
-        'One resource the operator expands into the KBS plus its policies, reference values, and secrets. Use the form below.',
+        'One resource the operator expands into the Key Broker Service (KBS) plus its policies, reference values, and secrets. The KBS is rolled out automatically — no separate step. Use the form below.',
       ),
-    },
-    kbs: {
-      title: t('Operator deploys the Key Broker Service'),
-      desc: t(
-        'Automatic. The operator rolls out the KBS and generates its attestation and resource policies and secrets.',
-      ),
-      action: t('View health'),
     },
     'reference-values': {
       title: t('Register reference values'),
@@ -336,15 +329,14 @@ const DeployTrusteeWizard: FC = () => {
             })
           : t('TrusteeConfig CRDs are present on this cluster.');
       case 'trusteeconfig':
-        return tcCreated
-          ? t('Created: {{name}}.', { name: tcName })
-          : t('Not created yet — use the form below.');
-      case 'kbs':
-        if (!tcCreated) return undefined;
-        if (kbsUp) return t('KBS deployed and reconciled.');
+        if (!tcCreated) return t('Not created yet — use the form below.');
+        if (kbsUp) return t('Created: {{name}} — KBS deployed and reconciled.', { name: tcName });
         return stuckReason
-          ? t('Waiting — {{reason}}', { reason: stuckReason })
-          : t('Waiting for the operator to deploy the KBS…');
+          ? t('Created: {{name}} — waiting for KBS: {{reason}}', {
+              name: tcName,
+              reason: stuckReason,
+            })
+          : t('Created: {{name}} — operator is deploying the KBS…', { name: tcName });
       case 'reference-values':
         if (!tcCreated) return undefined;
         return refValuesSet
@@ -386,10 +378,10 @@ const DeployTrusteeWizard: FC = () => {
     // Open the created TrusteeConfig resource.
     if (step.id === 'trusteeconfig')
       return createdHref ? linkButton(t('Open TrusteeConfig'), createdHref) : undefined;
-    // Tab deep-links (reference values, policies, secrets, GPU) and the KBS health tab.
-    // Before a TrusteeConfig exists these have nowhere to point — a single note above
-    // the list explains they unlock then, so rows stay quiet.
-    const tab = step.tab ?? (step.id === 'kbs' ? 'health' : undefined);
+    // Tab deep-links (reference values, policies, secrets, GPU). Before a TrusteeConfig
+    // exists these have nowhere to point — a single note above the list explains they
+    // unlock then, so rows stay quiet.
+    const tab = step.tab;
     const label = META[step.id].action;
     if (!tab || !label || !tcName) return undefined;
     return linkButton(label, `/k8s/ns/${tcNs}/${TrusteeConfigModelRef}/${tcName}/${tab}`);

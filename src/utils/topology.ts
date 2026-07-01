@@ -57,9 +57,25 @@ export interface TopoCluster {
 
 // ---- classification helpers ----
 
-/** A confidential-containers pod runs on the kata-cc family of runtime classes. */
-export const isConfidentialRuntimeName = (name?: string): boolean =>
-  !!name && name.startsWith('kata-cc');
+/**
+ * A confidential-containers pod runs on the kata-cc family (bare-metal on-node TEE), or —
+ * only when peer pods on this cluster are Confidential VMs — kata-remote (cloud peer pods,
+ * Azure SEV-SNP / TDX). Pass `cvmPeerPods` from {@link cvmPeerPodsEnabled} so cloud
+ * workloads appear in the attestation views while plain non-CVM peer pods stay excluded.
+ */
+export const isConfidentialRuntimeName = (name?: string, cvmPeerPods = false): boolean =>
+  !!name && (name.startsWith('kata-cc') || (cvmPeerPods && name === 'kata-remote'));
+
+/** A kata-remote (peer-pod) runtime — its TEE is a cloud Confidential VM, not a cluster node. */
+export const isPeerPodRuntime = (name?: string): boolean => name === 'kata-remote';
+
+/**
+ * Peer pods on this cluster run as Confidential VMs when peer-pods-cm has a CLOUD_PROVIDER
+ * and CVMs are not disabled (DISABLECVM !== 'true'). Only then may kata-remote workloads
+ * appear in the confidential attestation views.
+ */
+export const cvmPeerPodsEnabled = (peerPodsCmData?: Record<string, string>): boolean =>
+  Boolean(peerPodsCmData?.CLOUD_PROVIDER) && peerPodsCmData?.DISABLECVM !== 'true';
 
 export const teeTypeForNode = (node?: NodeKind): TeeType => {
   const labels = node?.metadata?.labels ?? {};
@@ -148,6 +164,7 @@ export const buildTopoCluster = (
   nodes: NodeKind[],
   infra: InfrastructureKind[],
   attestByUid: Map<string, AttestInfo> = new Map(),
+  cvmPeerPods = false,
 ): TopoCluster => {
   const clusterName =
     infra.find((i) => i.metadata?.name === 'cluster')?.status?.infrastructureName ?? 'This cluster';
@@ -158,7 +175,9 @@ export const buildTopoCluster = (
     if (nm) nodeByName.set(nm, n);
   });
 
-  const confidential = pods.filter((p) => isConfidentialRuntimeName(p.spec?.runtimeClassName));
+  const confidential = pods.filter((p) =>
+    isConfidentialRuntimeName(p.spec?.runtimeClassName, cvmPeerPods),
+  );
 
   const byNode = new Map<string, TopoWorkload[]>();
   confidential.forEach((p) => {
